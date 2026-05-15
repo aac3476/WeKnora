@@ -308,6 +308,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Invoke(registerIMAdapterFactories))
 	must(container.Provide(handler.NewIMHandler))
 	must(container.Provide(handler.NewWeKnoraCloudHandler))
+	must(container.Provide(handler.NewExternalHandler))
 	logger.Debugf(ctx, "[Container] HTTP handlers registered")
 
 	// Router configuration

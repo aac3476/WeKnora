@@ -13,6 +13,7 @@ import (
 
 	"github.com/Tencent/WeKnora/internal/config"
 	"github.com/Tencent/WeKnora/internal/errors"
+	ldapauth "github.com/Tencent/WeKnora/internal/ldap"
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
@@ -139,6 +140,25 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
+	// ── LDAP authentication branch ──────────────────────────────────────────
+	// When ldap_auth.enable is true, authenticate against the LDAP directory
+	// first. On success the user is auto-provisioned locally if they do not
+	// yet exist; on failure we reject without falling back to local passwords
+	// (prevents credential confusion for corporate accounts).
+	if h.configInfo != nil && h.configInfo.LdapAuth != nil && h.configInfo.LdapAuth.Enable {
+		response, err := h.loginWithLDAP(c, req.Email, req.Password)
+		if err != nil {
+			logger.Warnf(ctx, "LDAP login failed email=%s: %v", email, err)
+			appErr := errors.NewUnauthorizedError("Login failed").WithDetails(err.Error())
+			c.Error(appErr)
+			return
+		}
+		logger.Infof(ctx, "User logged in via LDAP, email: %s", email)
+		c.JSON(http.StatusOK, response)
+		return
+	}
+
+	// ── Local password authentication ────────────────────────────────────────
 	// Call service to authenticate user
 	response, err := h.userService.Login(ctx, &req)
 	if err != nil {
@@ -154,8 +174,6 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, response)
 		return
 	}
-
-	// User is already in the correct format from service
 
 	logger.Infof(ctx, "User logged in successfully, email: %s", email)
 	c.JSON(http.StatusOK, response)
@@ -314,6 +332,59 @@ func urlQueryEscape(value string) string {
 		"?", "%3F",
 	)
 	return replacer.Replace(value)
+}
+
+// loginWithLDAP authenticates a user against the corporate LDAP/AD directory.
+// On first successful login the user is auto-provisioned in WeKnora.
+// Returns a LoginResponse ready to be serialised, or an error.
+func (h *AuthHandler) loginWithLDAP(c *gin.Context, email, password string) (*types.LoginResponse, error) {
+	ctx := c.Request.Context()
+	ldapCfg := h.configInfo.LdapAuth
+
+	// Authenticate against the LDAP server.
+	attrs, err := ldapauth.Authenticate(ctx, ldapCfg, email, password)
+	if err != nil {
+		return nil, err
+	}
+
+	// Look up (or provision) the local WeKnora user.
+	user, err := h.userService.GetUserByEmail(ctx, attrs.Email)
+	if err != nil || user == nil {
+		logger.Infof(ctx, "[LDAP] provisioning new user email=%s", attrs.Email)
+		provisional, pwdErr := generateRandomPasswordHex()
+		if pwdErr != nil {
+			return nil, fmt.Errorf("failed to generate provisional password: %w", pwdErr)
+		}
+		user, err = h.userService.Register(ctx, &types.RegisterRequest{
+			Email:    attrs.Email,
+			Username: attrs.Username,
+			Password: provisional,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("user provisioning failed: %w", err)
+		}
+	}
+
+	if !user.IsActive {
+		return nil, fmt.Errorf("account is disabled")
+	}
+
+	// Issue WeKnora JWT tokens.
+	accessToken, refreshToken, err := h.userService.GenerateTokens(ctx, user)
+	if err != nil {
+		return nil, fmt.Errorf("token generation failed: %w", err)
+	}
+
+	tenant, _ := h.tenantService.GetTenantByID(ctx, user.TenantID)
+
+	return &types.LoginResponse{
+		Success:      true,
+		Message:      "Login successful (LDAP)",
+		User:         user,
+		Tenant:       tenant,
+		Token:        accessToken,
+		RefreshToken: refreshToken,
+	}, nil
 }
 
 // Logout godoc

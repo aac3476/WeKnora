@@ -10,16 +10,21 @@ import (
 )
 
 // GinMiddleware returns a Gin handler that opens a Langfuse trace for each
-// incoming request that hits a traced path. The trace is auto-finished when
-// the handler chain returns; individual LLM calls inside the handler attach
-// their generations to this trace via the request context.
-//
-// Only paths matching shouldTrace are traced — static assets, health checks
-// and polling endpoints are noisy and uninteresting.
+// incoming request that hits a traced path (see shouldTrace), or — when
+// X-Langfuse-Trace-Id is present — resumes the upstream trace from xgimi AI Hub
+// so WeKnora generations nest under the same Langfuse tree.
 func GinMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		mgr := GetManager()
-		if !mgr.Enabled() || !shouldTrace(c) {
+		if !mgr.Enabled() {
+			c.Next()
+			return
+		}
+
+		upstreamTrace, upstreamParent := incomingHubLangfuseTrace(c)
+		forceTrace := upstreamTrace != ""
+
+		if !shouldTrace(c) && !forceTrace {
 			c.Next()
 			return
 		}
@@ -39,22 +44,54 @@ func GinMiddleware() gin.HandlerFunc {
 			},
 			Tags: []string{"http", strings.ToLower(c.Request.Method)},
 		}
+		if upstreamTrace != "" {
+			opts.Metadata["hub.langfuse.linked"] = true
+		}
 		if rid, ok := types.RequestIDFromContext(ctx); ok {
 			opts.Metadata["request_id"] = rid
 		}
 
-		newCtx, trace := mgr.StartTrace(ctx, opts)
+		var newCtx context.Context
+		var trace *Trace
+
+		if upstreamTrace != "" {
+			var resumed *Trace
+			newCtx, resumed = mgr.ResumeTrace(ctx, upstreamTrace, upstreamParent)
+			if resumed == nil {
+				newCtx, trace = mgr.StartTrace(ctx, opts)
+			} else {
+				trace = resumed
+			}
+		} else {
+			newCtx, trace = mgr.StartTrace(ctx, opts)
+		}
+
 		c.Request = c.Request.WithContext(newCtx)
 
 		c.Next()
 
-		trace.Finish(map[string]interface{}{
-			"status": c.Writer.Status(),
-		}, map[string]interface{}{
-			"http.status_code": c.Writer.Status(),
-			"response.size":    c.Writer.Size(),
-		})
+		if trace != nil {
+			trace.Finish(map[string]interface{}{
+				"status": c.Writer.Status(),
+			}, map[string]interface{}{
+				"http.status_code": c.Writer.Status(),
+				"response.size":    c.Writer.Size(),
+			})
+		}
 	}
+}
+
+// HTTP headers from xgimi AI Hub (or any upstream) for Langfuse trace stitching.
+// See backend/app/services/langfuse_service.py (get_propagation_headers).
+const (
+	headerLangfuseTraceID               = "X-Langfuse-Trace-Id"
+	headerLangfuseParentObservationID   = "X-Langfuse-Parent-Observation-Id"
+)
+
+func incomingHubLangfuseTrace(c *gin.Context) (traceID, parentObs string) {
+	traceID = strings.TrimSpace(c.GetHeader(headerLangfuseTraceID))
+	parentObs = strings.TrimSpace(c.GetHeader(headerLangfuseParentObservationID))
+	return traceID, parentObs
 }
 
 // shouldTrace restricts tracing to endpoints where LLM work (or the asynq

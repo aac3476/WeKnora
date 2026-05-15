@@ -69,6 +69,7 @@ type RouterParams struct {
 	DataSourceHandler        *handler.DataSourceHandler
 	WeKnoraCloudHandler      *handler.WeKnoraCloudHandler
 	WikiPageHandler          *handler.WikiPageHandler
+	ExternalHandler          *handler.ExternalHandler
 }
 
 // NewRouter 创建新的路由
@@ -162,6 +163,7 @@ func NewRouter(params RouterParams) *gin.Engine {
 		RegisterWeKnoraCloudRoutes(v1, params.WeKnoraCloudHandler)
 		RegisterWikiPageRoutes(v1, params.WikiPageHandler)
 		RegisterChunkerDebugRoutes(v1)
+		RegisterExternalRoutes(v1, params.ExternalHandler)
 	}
 
 	return r
@@ -1000,6 +1002,25 @@ func RegisterDataSourceRoutes(r *gin.RouterGroup, handler *handler.DataSourceHan
 func RegisterWeKnoraCloudRoutes(r *gin.RouterGroup, handler *handler.WeKnoraCloudHandler) {
 	r.POST("/weknoracloud/credentials", handler.SaveCredentials)
 	r.GET("/models/weknoracloud/status", handler.Status)
+}
+
+// RegisterExternalRoutes registers the /api/v1/external/* routes consumed by xgimi AI Hub.
+// Authentication follows the global middleware (Bearer or X-API-Key).
+// When X-API-Key is used, send X-External-User-Email so the handler resolves the real user.
+func RegisterExternalRoutes(r *gin.RouterGroup, h *handler.ExternalHandler) {
+	if h == nil {
+		return
+	}
+	ext := r.Group("/external")
+	{
+		ext.POST("/provision-user", h.ProvisionUser)
+		ext.GET("/accessible-knowledge-bases", h.GetAccessibleKnowledgeBases)
+		ext.POST("/knowledge-bases", h.CreateKnowledgeBaseForUser)
+		ext.POST("/multi-search", h.MultiSearch)
+		ext.GET("/knowledge-bases/:id/entries", h.ListEntries)
+		ext.PATCH("/knowledge-bases/:id/entries/:entry_id", h.UpdateEntry)
+		ext.DELETE("/knowledge-bases/:id/entries/:entry_id", h.DeleteEntry)
+	}
 }
 
 // RegisterWikiPageRoutes registers wiki page related routes

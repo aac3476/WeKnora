@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,6 +15,26 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// LDAPAuthConfig configures LDAP directory authentication.
+// When Enable is true, the Login endpoint validates credentials against the LDAP
+// server instead of (or in addition to) the local password hash. On first successful
+// LDAP login the user is auto-provisioned locally (bcrypt random password, same
+// tenant as the API-key-level system user).
+type LDAPAuthConfig struct {
+	Enable         bool   `yaml:"enable"           json:"enable"`
+	Host           string `yaml:"host"             json:"host"`             // e.g. ldap://ldap.corp.example.com
+	Port           int    `yaml:"port"             json:"port"`             // 389 (plain) or 636 (TLS)
+	UseTLS         bool   `yaml:"use_tls"          json:"use_tls"`          // true → LDAPS
+	BindDN         string `yaml:"bind_dn"          json:"bind_dn"`          // service account DN
+	BindPassword   string `yaml:"bind_password"    json:"-"`                // service account password
+	UserSearchBase string `yaml:"user_search_base" json:"user_search_base"` // e.g. ou=users,dc=corp,dc=example,dc=com
+	// UserFilter template; {email} is replaced with the login email at runtime.
+	// Examples: "(mail={email})"  or  "(sAMAccountName={login})"
+	UserFilter    string `yaml:"user_filter"    json:"user_filter"`
+	EmailAttr     string `yaml:"email_attr"     json:"email_attr"`     // LDAP attribute that holds the email, e.g. "mail"
+	UsernameAttr  string `yaml:"username_attr"  json:"username_attr"`  // LDAP attribute for display name, e.g. "displayName"
+}
+
 // Config 应用程序总配置
 type Config struct {
 	Conversation    *ConversationConfig    `yaml:"conversation"     json:"conversation"`
@@ -21,6 +42,7 @@ type Config struct {
 	KnowledgeBase   *KnowledgeBaseConfig   `yaml:"knowledge_base"   json:"knowledge_base"`
 	Tenant          *TenantConfig          `yaml:"tenant"           json:"tenant"`
 	OIDCAuth        *OIDCAuthConfig        `yaml:"oidc_auth"        json:"oidc_auth"`
+	LdapAuth        *LDAPAuthConfig        `yaml:"ldap_auth"        json:"ldap_auth"`
 	Models          []ModelConfig          `yaml:"models"           json:"models"`
 	VectorDatabase  *VectorDatabaseConfig  `yaml:"vector_database"  json:"vector_database"`
 	DocReader       *DocReaderConfig       `yaml:"docreader"        json:"docreader"`
@@ -433,6 +455,7 @@ func LoadConfig() (*Config, error) {
 
 	// Validate configuration values
 	applyOIDCEnvOverrides(&cfg)
+	applyLDAPEnvOverrides(&cfg)
 	applyAgentEnvOverrides(&cfg)
 
 	if err := ValidateConfig(&cfg); err != nil {
@@ -558,6 +581,48 @@ func applyOIDCEnvOverrides(cfg *Config) {
 	}
 	if cfg.OIDCAuth.DiscoveryURL == "" && cfg.OIDCAuth.IssuerURL != "" {
 		cfg.OIDCAuth.DiscoveryURL = strings.TrimRight(cfg.OIDCAuth.IssuerURL, "/") + "/.well-known/openid-configuration"
+	}
+}
+
+// applyLDAPEnvOverrides merges LDAP_AUTH_* environment variables into cfg.LdapAuth,
+// mirroring the pattern used for OIDC so docker-compose / .env can drive directory login
+// without editing config.yaml.
+func applyLDAPEnvOverrides(cfg *Config) {
+	if cfg.LdapAuth == nil {
+		cfg.LdapAuth = &LDAPAuthConfig{}
+	}
+
+	if value := strings.TrimSpace(os.Getenv("LDAP_AUTH_ENABLE")); value != "" {
+		cfg.LdapAuth.Enable = strings.EqualFold(value, "true")
+	}
+	if value := strings.TrimSpace(os.Getenv("LDAP_AUTH_HOST")); value != "" {
+		cfg.LdapAuth.Host = value
+	}
+	if value := strings.TrimSpace(os.Getenv("LDAP_AUTH_PORT")); value != "" {
+		if p, err := strconv.Atoi(value); err == nil && p > 0 && p <= 65535 {
+			cfg.LdapAuth.Port = p
+		}
+	}
+	if value := strings.TrimSpace(os.Getenv("LDAP_AUTH_USE_TLS")); value != "" {
+		cfg.LdapAuth.UseTLS = strings.EqualFold(value, "true")
+	}
+	if value := strings.TrimSpace(os.Getenv("LDAP_AUTH_BIND_DN")); value != "" {
+		cfg.LdapAuth.BindDN = value
+	}
+	if value := strings.TrimSpace(os.Getenv("LDAP_AUTH_BIND_PASSWORD")); value != "" {
+		cfg.LdapAuth.BindPassword = value
+	}
+	if value := strings.TrimSpace(os.Getenv("LDAP_AUTH_USER_SEARCH_BASE")); value != "" {
+		cfg.LdapAuth.UserSearchBase = value
+	}
+	if value := strings.TrimSpace(os.Getenv("LDAP_AUTH_USER_FILTER")); value != "" {
+		cfg.LdapAuth.UserFilter = value
+	}
+	if value := strings.TrimSpace(os.Getenv("LDAP_AUTH_EMAIL_ATTR")); value != "" {
+		cfg.LdapAuth.EmailAttr = value
+	}
+	if value := strings.TrimSpace(os.Getenv("LDAP_AUTH_USERNAME_ATTR")); value != "" {
+		cfg.LdapAuth.UsernameAttr = value
 	}
 }
 
