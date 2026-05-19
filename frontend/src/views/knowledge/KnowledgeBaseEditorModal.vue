@@ -195,15 +195,6 @@
                   />
                 </div>
 
-                <!-- 存储引擎 -->
-                <div v-if="!isFAQ && formData" v-show="currentSection === 'storage'" class="section">
-                  <KBStorageSettings
-                    :storage-provider="formData.storageProvider"
-                    :has-files="mode === 'edit' && hasFiles"
-                    @update:storage-provider="handleStorageProviderUpdate"
-                  />
-                </div>
-
                 <!-- 分块设置 -->
                 <div v-if="!isFAQ" v-show="currentSection === 'chunking'" class="section">
                   <KBChunkingSettings
@@ -359,11 +350,11 @@ import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next'
 import { createKnowledgeBase, getKnowledgeBaseById, listKnowledgeFiles, updateKnowledgeBase, rebuildKBIndex } from '@/api/knowledge-base'
 import { updateKBConfig, type KBModelConfigRequest } from '@/api/initialization'
 import { listModels } from '@/api/model'
+import { getStorageEngineConfig } from '@/api/system'
 import { useUIStore } from '@/stores/ui'
 import { useAuthStore } from '@/stores/auth'
 import KBModelConfig from './settings/KBModelConfig.vue'
 import KBParserSettings from './settings/KBParserSettings.vue'
-import KBStorageSettings from './settings/KBStorageSettings.vue'
 import KBChunkingSettings from './settings/KBChunkingSettings.vue'
 import KBAdvancedSettings from './settings/KBAdvancedSettings.vue'
 import ModelSelector from '@/components/ModelSelector.vue'
@@ -395,7 +386,7 @@ const saving = ref(false)
 const loading = ref(false)
 const allModels = ref<any[]>([])
 const hasFiles = ref(false)
-const initialStorageProvider = ref<string>('')
+const platformStorageProvider = ref('local')
 const initialIndexingStrategy = ref<any>(null)
 const dsCount = ref(0)
 // 用户是否在分块设置中手动改过任何值。一旦为 true，就不再根据索引策略自动调整默认分块参数。
@@ -431,7 +422,6 @@ const navItems = computed(() => {
       { key: 'parser', icon: 'file-search', label: t('settings.parserEngine') },
       { key: 'multimodal', icon: 'image', label: t('knowledgeEditor.sidebar.multimodal') },
       { key: 'asr', icon: 'sound', label: t('knowledgeEditor.sidebar.asr') },
-      { key: 'storage', icon: 'cloud', label: t('knowledgeEditor.sidebar.storage') },
       { key: 'chunking', icon: 'file-copy', label: t('knowledgeEditor.sidebar.chunking') },
       { key: 'graph', icon: 'chart-bubble', label: t('knowledgeEditor.sidebar.graph') },
       { key: 'advanced', icon: 'setting', label: t('knowledgeEditor.sidebar.advanced') }
@@ -646,7 +636,6 @@ const loadKBData = async () => {
         graphEnabled: kb.indexing_strategy?.graph_enabled ?? false,
       },
     }
-    initialStorageProvider.value = formData.value.storageProvider
     initialIndexingStrategy.value = { ...formData.value.indexingStrategy }
   } catch (error) {
     console.error('Failed to load knowledge base data:', error)
@@ -771,9 +760,13 @@ const handleAddWikiModel = () => {
   uiStore.openSettings('models', 'knowledgeqa')
 }
 
-const handleStorageProviderUpdate = (value: string) => {
-  if (formData.value) {
-    formData.value.storageProvider = value || 'local'
+
+const loadPlatformStorageProvider = async () => {
+  try {
+    const res = await getStorageEngineConfig()
+    platformStorageProvider.value = res?.data?.default_provider || 'local'
+  } catch {
+    platformStorageProvider.value = 'local'
   }
 }
 
@@ -887,14 +880,10 @@ const buildSubmitData = () => {
     language: formData.value.asrConfig?.language || ''
   }
 
-  // 存储引擎：仅传 provider，参数从全局设置读取
-  // Write to storage_provider_config (authoritative) + storage_config (legacy dual-write)
-  data.storage_provider_config = {
-    provider: formData.value.storageProvider || 'local'
-  }
-  data.storage_config = {
-    provider: formData.value.storageProvider || 'local'
-  }
+  // 存储引擎由平台环境变量统一管理
+  const provider = platformStorageProvider.value || 'local'
+  data.storage_provider_config = { provider }
+  data.storage_config = { provider }
 
   // 添加知识图谱配置 — now synced via indexingStrategy.graphEnabled
   // extract_config is sent below along with indexing_strategy
@@ -951,30 +940,6 @@ const buildSubmitData = () => {
 // 提交表单
 const handleSubmit = async () => {
   if (!validateForm()) {
-    return
-  }
-
-  // 编辑模式下，若已有文件且存储引擎发生了变化，弹窗确认
-  if (
-    props.mode === 'edit' &&
-    hasFiles.value &&
-    formData.value &&
-    initialStorageProvider.value &&
-    formData.value.storageProvider !== initialStorageProvider.value
-  ) {
-    const dialog = DialogPlugin.confirm({
-      header: t('common.confirm'),
-      body: t('knowledgeEditor.messages.storageChangeConfirm'),
-      confirmBtn: t('common.confirm'),
-      cancelBtn: t('common.cancel'),
-      onConfirm: () => {
-        dialog.destroy()
-        doSubmit()
-      },
-      onCancel: () => {
-        dialog.destroy()
-      },
-    })
     return
   }
 
@@ -1124,7 +1089,6 @@ const resetState = () => {
   currentSection.value = 'basic'
   formData.value = null
   hasFiles.value = false
-  initialStorageProvider.value = ''
   initialIndexingStrategy.value = null
   saving.value = false
   loading.value = false
@@ -1144,10 +1108,11 @@ watch(() => props.visible, async (newVal) => {
   if (newVal) {
     // 打开弹窗时，先重置状态
     resetState()
+    await loadPlatformStorageProvider()
     
     // 检查是否有初始 section，如果有则跳转
     if (uiStore.kbEditorInitialSection) {
-      currentSection.value = uiStore.kbEditorInitialSection
+      currentSection.value = uiStore.kbEditorInitialSection === 'storage' ? 'basic' : uiStore.kbEditorInitialSection
     }
     
     // 加载模型列表

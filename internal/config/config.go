@@ -28,8 +28,8 @@ type LDAPAuthConfig struct {
 	BindDN         string `yaml:"bind_dn"          json:"bind_dn"`          // service account DN
 	BindPassword   string `yaml:"bind_password"    json:"-"`                // service account password
 	UserSearchBase string `yaml:"user_search_base" json:"user_search_base"` // e.g. ou=users,dc=corp,dc=example,dc=com
-	// UserFilter template; {email} is replaced with the login email at runtime.
-	// Examples: "(mail={email})"  or  "(sAMAccountName={login})"
+	// UserFilter template; {login} and {email} are replaced with the login identifier at runtime.
+	// Examples: "(mail={login})"  or  "(sAMAccountName={login})"
 	UserFilter    string `yaml:"user_filter"    json:"user_filter"`
 	EmailAttr     string `yaml:"email_attr"     json:"email_attr"`     // LDAP attribute that holds the email, e.g. "mail"
 	UsernameAttr  string `yaml:"username_attr"  json:"username_attr"`  // LDAP attribute for display name, e.g. "displayName"

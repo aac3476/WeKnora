@@ -167,7 +167,7 @@
     <div class="form-section">
       <div class="form-panel">
         <!-- Login Card -->
-        <div class="form-card" v-if="!isRegisterMode">
+        <div class="form-card">
                 <div class="form-header">
                   <h2 class="form-title">{{ $t('auth.login') }}</h2>
                   <p class="form-welcome">{{ $t('auth.subtitle') }}</p>
@@ -181,11 +181,10 @@
           @submit="handleLogin"
           layout="vertical"
         >
-          <t-form-item :label="$t('auth.email')" name="email">
+          <t-form-item :label="$t('auth.loginAccount')" name="account">
             <t-input
-              v-model="formData.email"
-              :placeholder="$t('auth.emailPlaceholder')"
-              type="email"
+              v-model="formData.account"
+              :placeholder="$t('auth.loginAccountPlaceholder')"
               size="large"
               :disabled="loading"
             />
@@ -212,13 +211,6 @@
           >
                 {{ loading ? $t('auth.loggingIn') : $t('auth.login') }}
           </t-button>
-
-          <div class="form-footer login-form-footer">
-            <span>{{ $t('auth.noAccount') }}</span>
-            <a href="#" @click.prevent="toggleMode" class="link-button">
-              {{ $t('auth.registerNow') }}
-            </a>
-          </div>
 
           <div v-if="oidcEnabled" class="oidc-divider">
             <span>{{ $t('auth.orContinueWith') }}</span>
@@ -255,98 +247,6 @@
             </div>
       </div>
     </div>
-
-        <!-- Register Card -->
-        <div class="form-card" v-if="isRegisterMode">
-          <div class="form-header">
-            <h2 class="form-title">{{ $t('auth.createAccount') }}</h2>
-            <p class="form-subtitle">{{ $t('auth.registerSubtitle') }}</p>
-      </div>
-
-          <div class="form-content">
-        <t-form
-          ref="registerFormRef"
-          :data="registerData"
-          :rules="registerRules"
-          @submit="handleRegister"
-          layout="vertical"
-        >
-          <t-form-item :label="$t('auth.username')" name="username">
-            <t-input
-              v-model="registerData.username"
-              :placeholder="$t('auth.usernamePlaceholder')"
-              size="large"
-              :disabled="loading"
-            />
-          </t-form-item>
-
-          <t-form-item :label="$t('auth.email')" name="email">
-            <t-input
-              v-model="registerData.email"
-              :placeholder="$t('auth.emailPlaceholder')"
-              type="email"
-              size="large"
-              :disabled="loading"
-            />
-          </t-form-item>
-
-          <t-form-item :label="$t('auth.password')" name="password">
-            <t-input
-              v-model="registerData.password"
-              :placeholder="$t('auth.passwordPlaceholder')"
-              type="password"
-              size="large"
-              :disabled="loading"
-            />
-          </t-form-item>
-
-          <t-form-item :label="$t('auth.confirmPassword')" name="confirmPassword">
-            <t-input
-              v-model="registerData.confirmPassword"
-              :placeholder="$t('auth.confirmPasswordPlaceholder')"
-              type="password"
-              size="large"
-              :disabled="loading"
-              @keydown.enter="handleRegister"
-            />
-          </t-form-item>
-
-          <t-button
-            type="submit"
-            theme="primary"
-            size="large"
-            block
-            :loading="loading"
-                class="submit-button"
-          >
-            {{ loading ? $t('auth.registering') : $t('auth.register') }}
-          </t-button>
-        </t-form>
-
-            <div class="form-footer">
-          <span>{{ $t('auth.haveAccount') }}</span>
-              <a href="#" @click.prevent="toggleMode" class="link-button">
-            {{ $t('auth.backToLogin') }}
-          </a>
-        </div>
-
-            <!-- Features list for register -->
-            <div class="login-features">
-              <div class="feature-item">
-                <span class="feature-icon">✓</span>
-                <span class="feature-text">{{ $t('platform.independentTenant') }}</span>
-      </div>
-              <div class="feature-item">
-                <span class="feature-icon">✓</span>
-                <span class="feature-text">{{ $t('platform.fullApiAccess') }}</span>
-              </div>
-              <div class="feature-item">
-                <span class="feature-icon">✓</span>
-                <span class="feature-text">{{ $t('platform.knowledgeBaseManagement') }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
       </div>
     </div>
   </div>
@@ -361,7 +261,7 @@ import { Autoplay, EffectFade, Pagination } from 'swiper/modules'
 import 'swiper/css'
 import 'swiper/css/effect-fade'
 import 'swiper/css/pagination'
-import { login, register, getOIDCAuthorizationURL, getOIDCConfig, autoSetup } from '@/api/auth'
+import { login, getOIDCAuthorizationURL, getOIDCConfig, autoSetup } from '@/api/auth'
 import { useAuthStore } from '@/stores/auth'
 import { useI18n } from 'vue-i18n'
 
@@ -398,12 +298,10 @@ const slides = [
 
 // Form references
 const formRef = ref()
-const registerFormRef = ref()
 
 // State management
 const loading = ref(false)
 const oidcLoading = ref(false)
-const isRegisterMode = ref(false)
 const showLanguageMenu = ref(false)
 const oidcEnabled = ref(false)
 const oidcProviderName = ref('')
@@ -427,23 +325,14 @@ const currentLangOption = computed(() => languageOptions.find(l => l.value === c
 
 // Login form data
 const formData = reactive<{[key: string]: any}>({
-  email: '',
+  account: '',
   password: '',
-})
-
-// Register form data
-const registerData = reactive<{[key: string]: any}>({
-  username: '',
-  email: '',
-  password: '',
-  confirmPassword: ''
 })
 
 // Login form validation rules
 const formRules = computed(() => ({
-  email: [
-    { required: true, message: t('auth.emailRequired'), type: 'error' },
-    { email: true, message: t('auth.emailInvalid'), type: 'error' }
+  account: [
+    { required: true, message: t('auth.loginAccountRequired'), type: 'error' },
   ],
   password: [
     { required: true, message: t('auth.passwordRequired'), type: 'error' },
@@ -453,48 +342,6 @@ const formRules = computed(() => ({
     { pattern: /\d/, message: t('auth.passwordMustContainNumber'), type: 'error' }
   ]
 }))
-
-// Register form validation rules
-const registerRules = computed(() => ({
-  username: [
-    { required: true, message: t('auth.usernameRequired'), type: 'error' },
-    { min: 2, message: t('auth.usernameMinLength'), type: 'error' },
-    { max: 20, message: t('auth.usernameMaxLength'), type: 'error' },
-    { 
-      pattern: /^[a-zA-Z0-9_\u4e00-\u9fa5]+$/, 
-      message: t('auth.usernameInvalid'), 
-      type: 'error' 
-    }
-  ],
-  email: [
-    { required: true, message: t('auth.emailRequired'), type: 'error' },
-    { email: true, message: t('auth.emailInvalid'), type: 'error' }
-  ],
-  password: [
-    { required: true, message: t('auth.passwordRequired'), type: 'error' },
-    { min: 8, message: t('auth.passwordMinLength'), type: 'error' },
-    { max: 32, message: t('auth.passwordMaxLength'), type: 'error' },
-    { pattern: /[a-zA-Z]/, message: t('auth.passwordMustContainLetter'), type: 'error' },
-    { pattern: /\d/, message: t('auth.passwordMustContainNumber'), type: 'error' }
-  ],
-  confirmPassword: [
-    { required: true, message: t('auth.confirmPasswordRequired'), type: 'error' },
-    {
-      validator: (val: string) => val === registerData.password,
-      message: t('auth.passwordMismatch'),
-      type: 'error'
-    }
-  ]
-}))
-
-// Toggle login/register mode
-const toggleMode = () => {
-  isRegisterMode.value = !isRegisterMode.value
-  
-  Object.keys(registerData).forEach(key => {
-    (registerData as any)[key] = ''
-  })
-}
 
 // Toggle language menu
 const toggleLanguageMenu = () => {
@@ -596,9 +443,10 @@ const handleLogin = async () => {
     if (valid !== true) return
 
     loading.value = true
-    
+
+    const account = String(formData.account || '').trim()
     const response = await login({
-      email: formData.email,
+      login: account,
       password: formData.password,
     })
 
@@ -611,42 +459,6 @@ const handleLogin = async () => {
   } catch (error: any) {
     console.error('登录错误:', error)
     MessagePlugin.error(error.message || t('auth.loginErrorRetry'))
-  } finally {
-    loading.value = false
-  }
-}
-
-// Handle registration
-const handleRegister = async () => {
-  try {
-    const valid = await registerFormRef.value?.validate()
-    if (valid !== true) return
-
-    loading.value = true
-    
-    const response = await register({
-      username: registerData.username,
-      email: registerData.email,
-      password: registerData.password
-    })
-
-    if (response.success) {
-      MessagePlugin.success(t('auth.registerSuccess'))
-      
-      // Switch to login mode and fill in email
-      isRegisterMode.value = false
-      formData.email = registerData.email
-      
-      // Clear register form
-      Object.keys(registerData).forEach(key => {
-        (registerData as any)[key] = ''
-      })
-    } else {
-      MessagePlugin.error(response.message || t('auth.registerFailed'))
-    }
-  } catch (error: any) {
-    console.error('注册错误:', error)
-    MessagePlugin.error(error.message || t('auth.registerError'))
   } finally {
     loading.value = false
   }

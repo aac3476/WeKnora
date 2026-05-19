@@ -113,159 +113,19 @@ func (s *knowledgeService) getVLMConfig(ctx context.Context, kb *types.Knowledge
 }
 
 func (s *knowledgeService) buildStorageConfig(ctx context.Context, kb *types.KnowledgeBase) *types.DocParserStorageConfig {
-	provider := kb.GetStorageProvider()
-	if provider == "" {
-		provider = "local"
-	}
-
-	// Backward compatibility: if legacy cos_config has full params for the chosen provider, use them.
-	// Note: legacy StorageConfig predates tos/s3/oss/ks3, so those providers always
-	// resolve via the tenant-merge path below. Listing them here keeps the fall-through
-	// intentional (instead of an unrecognised provider silently sliding past the switch).
-	// See issue #1117: provider enum was missing tos/s3/oss in this switch.
-	sc := &kb.StorageConfig
-	hasKBFull := false
-	switch provider {
-	case "cos":
-		hasKBFull = sc.SecretID != "" && sc.BucketName != ""
-	case "minio":
-		hasKBFull = sc.BucketName != ""
-	case "local", "tos", "s3", "oss", "ks3":
-		hasKBFull = false
-	}
-
-	if hasKBFull {
-		logger.Infof(ctx, "[storage] buildStorageConfig use legacy kb config: kb=%s provider=%s bucket=%s path_prefix=%s",
-			kb.ID, provider, sc.BucketName, sc.PathPrefix)
-		return &types.DocParserStorageConfig{
-			Provider:        strings.ToUpper(provider),
-			Region:          sc.Region,
-			BucketName:      sc.BucketName,
-			AccessKeyID:     sc.SecretID,
-			SecretAccessKey: sc.SecretKey,
-			AppID:           sc.AppID,
-			PathPrefix:      sc.PathPrefix,
-		}
-	}
-
-	// Merge from tenant's StorageEngineConfig.
-	var out types.DocParserStorageConfig
-	out.Provider = strings.ToUpper(provider)
-
-	tenant, _ := ctx.Value(types.TenantInfoContextKey).(*types.Tenant)
-	if tenant != nil && tenant.StorageEngineConfig != nil {
-		sec := tenant.StorageEngineConfig
-		if sec.DefaultProvider != "" && provider == "" {
-			provider = strings.ToLower(strings.TrimSpace(sec.DefaultProvider))
-			out.Provider = strings.ToUpper(provider)
-		}
-		// Provider list must match types.StorageEngineConfig + ParseProviderScheme.
-		// Missing a case here causes DocParserStorageConfig to be returned with only
-		// Provider set — bucket/endpoint/credentials are silently dropped, and the
-		// docreader then fails or fetches from the wrong location. See issue #1117.
-		switch provider {
-		case "local":
-			if sec.Local != nil {
-				out.PathPrefix = sec.Local.PathPrefix
-			}
-		case "minio":
-			if sec.MinIO != nil {
-				out.BucketName = sec.MinIO.BucketName
-				out.PathPrefix = sec.MinIO.PathPrefix
-				if sec.MinIO.Mode == "remote" {
-					out.Endpoint = sec.MinIO.Endpoint
-					out.AccessKeyID = sec.MinIO.AccessKeyID
-					out.SecretAccessKey = sec.MinIO.SecretAccessKey
-				} else {
-					out.Endpoint = os.Getenv("MINIO_ENDPOINT")
-					out.AccessKeyID = os.Getenv("MINIO_ACCESS_KEY_ID")
-					out.SecretAccessKey = os.Getenv("MINIO_SECRET_ACCESS_KEY")
-				}
-			}
-		case "cos":
-			if sec.COS != nil {
-				out.Region = sec.COS.Region
-				out.BucketName = sec.COS.BucketName
-				out.AccessKeyID = sec.COS.SecretID
-				out.SecretAccessKey = sec.COS.SecretKey
-				out.AppID = sec.COS.AppID
-				out.PathPrefix = sec.COS.PathPrefix
-			}
-		case "tos":
-			if sec.TOS != nil {
-				out.Endpoint = sec.TOS.Endpoint
-				out.Region = sec.TOS.Region
-				out.AccessKeyID = sec.TOS.AccessKey
-				out.SecretAccessKey = sec.TOS.SecretKey
-				out.BucketName = sec.TOS.BucketName
-				out.PathPrefix = sec.TOS.PathPrefix
-			}
-		case "s3":
-			if sec.S3 != nil {
-				out.Endpoint = sec.S3.Endpoint
-				out.Region = sec.S3.Region
-				out.AccessKeyID = sec.S3.AccessKey
-				out.SecretAccessKey = sec.S3.SecretKey
-				out.BucketName = sec.S3.BucketName
-				out.PathPrefix = sec.S3.PathPrefix
-			}
-		case "oss":
-			if sec.OSS != nil {
-				out.Endpoint = sec.OSS.Endpoint
-				out.Region = sec.OSS.Region
-				out.AccessKeyID = sec.OSS.AccessKey
-				out.SecretAccessKey = sec.OSS.SecretKey
-				out.BucketName = sec.OSS.BucketName
-				out.PathPrefix = sec.OSS.PathPrefix
-			}
-		case "ks3":
-			if sec.KS3 != nil {
-				out.Endpoint = sec.KS3.Endpoint
-				out.Region = sec.KS3.Region
-				out.AccessKeyID = sec.KS3.AccessKey
-				out.SecretAccessKey = sec.KS3.SecretKey
-				out.BucketName = sec.KS3.BucketName
-				out.PathPrefix = sec.KS3.PathPrefix
-			}
-		}
-	}
-
-	logger.Infof(ctx, "[storage] buildStorageConfig use merged tenant/global config: kb=%s provider=%s bucket=%s path_prefix=%s endpoint=%s",
-		kb.ID, strings.ToLower(out.Provider), out.BucketName, out.PathPrefix, out.Endpoint)
-	return &out
+	_ = ctx
+	_ = kb
+	return filesvc.DocParserStorageConfigFromEnv()
 }
 
-// resolveFileService returns the FileService for the given knowledge base,
-// based on the KB's StorageProviderConfig (or legacy StorageConfig.Provider) and the tenant's StorageEngineConfig.
-// Falls back to the global fileSvc when no tenant-level storage config is found.
+// resolveFileService returns the platform FileService configured via environment variables.
 func (s *knowledgeService) resolveFileService(ctx context.Context, kb *types.KnowledgeBase) interfaces.FileService {
-	if kb == nil {
-		logger.Infof(ctx, "[storage] resolveFileService fallback default: kb=nil")
-		return s.fileSvc
+	_ = ctx
+	_ = kb
+	if svc, _, err := filesvc.NewFileServiceFromEnv(); err == nil {
+		return svc
 	}
-
-	provider := kb.GetStorageProvider()
-
-	tenant, _ := ctx.Value(types.TenantInfoContextKey).(*types.Tenant)
-	if provider == "" && tenant != nil && tenant.StorageEngineConfig != nil {
-		provider = strings.ToLower(strings.TrimSpace(tenant.StorageEngineConfig.DefaultProvider))
-	}
-
-	if provider == "" || tenant == nil || tenant.StorageEngineConfig == nil {
-		logger.Infof(ctx, "[storage] resolveFileService fallback default: kb=%s provider=%q tenant_cfg=%v",
-			kb.ID, provider, tenant != nil && tenant.StorageEngineConfig != nil)
-		return s.fileSvc
-	}
-
-	sec := tenant.StorageEngineConfig
-	baseDir := strings.TrimSpace(os.Getenv("LOCAL_STORAGE_BASE_DIR"))
-	svc, resolvedProvider, err := filesvc.NewFileServiceFromStorageConfig(provider, sec, baseDir)
-	if err != nil {
-		logger.Errorf(ctx, "Failed to create %s file service from tenant config: %v, falling back to default", provider, err)
-		return s.fileSvc
-	}
-	logger.Infof(ctx, "[storage] resolveFileService selected: kb=%s provider=%s", kb.ID, resolvedProvider)
-	return svc
+	return s.fileSvc
 }
 
 // resolveFileServiceForPath is like resolveFileService but adds a safety check:
@@ -283,13 +143,7 @@ func (s *knowledgeService) resolveFileServiceForPath(ctx context.Context, kb *ty
 		return svc
 	}
 
-	configured := kb.GetStorageProvider()
-	if configured == "" {
-		tenant, _ := ctx.Value(types.TenantInfoContextKey).(*types.Tenant)
-		if tenant != nil && tenant.StorageEngineConfig != nil {
-			configured = strings.ToLower(strings.TrimSpace(tenant.StorageEngineConfig.DefaultProvider))
-		}
-	}
+	configured := filesvc.DefaultProviderFromEnv()
 	if configured == "" {
 		configured = strings.ToLower(strings.TrimSpace(os.Getenv("STORAGE_TYPE")))
 	}

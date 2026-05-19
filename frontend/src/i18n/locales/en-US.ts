@@ -1236,6 +1236,9 @@ export default {
     oidcStateMismatch: 'OIDC state verification failed, please try again',
     username: 'Username',
     email: 'Email',
+    loginAccount: 'Username or email',
+    loginAccountPlaceholder: 'Enter username or email',
+    loginAccountRequired: 'Enter username or email',
     password: 'Password',
     confirmPassword: 'Confirm Password',
     rememberMe: 'Remember Me',
@@ -1271,7 +1274,7 @@ export default {
     usernameInvalid: 'Username can only contain letters, numbers, underscores and Chinese characters',
     confirmPasswordRequired: 'Confirm password',
     passwordMismatch: 'Entered passwords do not match',
-    loginError: 'Login error, please check email or password',
+    loginError: 'Login error, please check username/email or password',
     loginErrorRetry: 'Login error, please try again later',
     registerError: 'Registration error, please try again later',
     forgotPasswordNotAvailable: 'Password recovery function is temporarily unavailable, please contact administrator'

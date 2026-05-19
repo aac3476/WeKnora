@@ -639,114 +639,11 @@ func resetPendingTasks(db *gorm.DB) {
 //   - Configured file service implementation
 //   - Error if initialization fails
 func initFileService(cfg *config.Config) (interfaces.FileService, error) {
-	storageType := strings.TrimSpace(os.Getenv("STORAGE_TYPE"))
-	if storageType == "" {
-		storageType = "local"
+	svc, _, err := file.NewFileServiceFromEnv()
+	if err != nil {
+		return nil, err
 	}
-	switch storageType {
-	case "minio":
-		if os.Getenv("MINIO_ENDPOINT") == "" ||
-			os.Getenv("MINIO_ACCESS_KEY_ID") == "" ||
-			os.Getenv("MINIO_SECRET_ACCESS_KEY") == "" ||
-			os.Getenv("MINIO_BUCKET_NAME") == "" {
-			return nil, fmt.Errorf("missing MinIO configuration")
-		}
-		return file.NewMinioFileService(
-			os.Getenv("MINIO_ENDPOINT"),
-			os.Getenv("MINIO_ACCESS_KEY_ID"),
-			os.Getenv("MINIO_SECRET_ACCESS_KEY"),
-			os.Getenv("MINIO_BUCKET_NAME"),
-			strings.EqualFold(os.Getenv("MINIO_USE_SSL"), "true"),
-		)
-	case "cos":
-		if os.Getenv("COS_BUCKET_NAME") == "" ||
-			os.Getenv("COS_REGION") == "" ||
-			os.Getenv("COS_SECRET_ID") == "" ||
-			os.Getenv("COS_SECRET_KEY") == "" ||
-			os.Getenv("COS_PATH_PREFIX") == "" {
-			return nil, fmt.Errorf("missing COS configuration")
-		}
-		return file.NewCosFileServiceWithTempBucket(
-			os.Getenv("COS_BUCKET_NAME"),
-			os.Getenv("COS_REGION"),
-			os.Getenv("COS_SECRET_ID"),
-			os.Getenv("COS_SECRET_KEY"),
-			os.Getenv("COS_PATH_PREFIX"),
-			os.Getenv("COS_TEMP_BUCKET_NAME"),
-			os.Getenv("COS_TEMP_REGION"),
-		)
-	case "tos":
-		if os.Getenv("TOS_ENDPOINT") == "" ||
-			os.Getenv("TOS_REGION") == "" ||
-			os.Getenv("TOS_ACCESS_KEY") == "" ||
-			os.Getenv("TOS_SECRET_KEY") == "" ||
-			os.Getenv("TOS_BUCKET_NAME") == "" {
-			return nil, fmt.Errorf("missing TOS configuration")
-		}
-		return file.NewTosFileServiceWithTempBucket(
-			os.Getenv("TOS_ENDPOINT"),
-			os.Getenv("TOS_REGION"),
-			os.Getenv("TOS_ACCESS_KEY"),
-			os.Getenv("TOS_SECRET_KEY"),
-			os.Getenv("TOS_BUCKET_NAME"),
-			os.Getenv("TOS_PATH_PREFIX"),
-			os.Getenv("TOS_TEMP_BUCKET_NAME"), // 可选：临时桶名称（桶需配置生命周期规则自动过期）
-			os.Getenv("TOS_TEMP_REGION"),      // 可选：临时桶 region，默认与主桶相同
-		)
-	case "s3":
-		if os.Getenv("S3_ENDPOINT") == "" ||
-			os.Getenv("S3_REGION") == "" ||
-			os.Getenv("S3_ACCESS_KEY") == "" ||
-			os.Getenv("S3_SECRET_KEY") == "" ||
-			os.Getenv("S3_BUCKET_NAME") == "" {
-			return nil, fmt.Errorf("missing S3 configuration")
-		}
-		pathPrefix := os.Getenv("S3_PATH_PREFIX")
-		if pathPrefix == "" {
-			pathPrefix = "weknora/"
-		}
-		return file.NewS3FileService(
-			os.Getenv("S3_ENDPOINT"),
-			os.Getenv("S3_ACCESS_KEY"),
-			os.Getenv("S3_SECRET_KEY"),
-			os.Getenv("S3_BUCKET_NAME"),
-			os.Getenv("S3_REGION"),
-			pathPrefix,
-		)
-	case "oss":
-		if os.Getenv("OSS_ENDPOINT") == "" ||
-			os.Getenv("OSS_REGION") == "" ||
-			os.Getenv("OSS_ACCESS_KEY") == "" ||
-			os.Getenv("OSS_SECRET_KEY") == "" ||
-			os.Getenv("OSS_BUCKET_NAME") == "" {
-			return nil, fmt.Errorf("missing OSS configuration")
-		}
-		pathPrefix := os.Getenv("OSS_PATH_PREFIX")
-		if pathPrefix == "" {
-			pathPrefix = "weknora/"
-		}
-		return file.NewOssFileServiceWithTempBucket(
-			os.Getenv("OSS_ENDPOINT"),
-			os.Getenv("OSS_REGION"),
-			os.Getenv("OSS_ACCESS_KEY"),
-			os.Getenv("OSS_SECRET_KEY"),
-			os.Getenv("OSS_BUCKET_NAME"),
-			pathPrefix,
-			os.Getenv("OSS_TEMP_BUCKET_NAME"),
-			os.Getenv("OSS_TEMP_REGION"),
-		)
-	case "local":
-		baseDir := os.Getenv("LOCAL_STORAGE_BASE_DIR")
-		if baseDir == "" {
-			baseDir = "/data/files"
-		}
-		externalURL := strings.TrimSpace(os.Getenv("APP_EXTERNAL_URL"))
-		return file.NewLocalFileService(baseDir, externalURL), nil
-	case "dummy":
-		return file.NewDummyFileService(), nil
-	default:
-		return nil, fmt.Errorf("unsupported storage type: %s", storageType)
-	}
+	return svc, nil
 }
 
 // initRetrieveEngineRegistry initializes the retrieval engine registry

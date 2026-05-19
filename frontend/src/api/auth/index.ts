@@ -5,7 +5,9 @@ const t = (key: string) => i18n.global.t(key)
 
 // 用户登录接口
 export interface LoginRequest {
-  email: string
+  login?: string
+  email?: string
+  username?: string
   password: string
 }
 

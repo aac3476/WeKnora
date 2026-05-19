@@ -10,6 +10,7 @@ import (
 
 	"github.com/Tencent/WeKnora/internal/config"
 	werrors "github.com/Tencent/WeKnora/internal/errors"
+	filesvc "github.com/Tencent/WeKnora/internal/application/service/file"
 	"github.com/Tencent/WeKnora/internal/infrastructure/docparser"
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
@@ -154,18 +155,12 @@ func (s *knowledgeService) isKnowledgeDeleting(ctx context.Context, tenantID uin
 	return knowledge.ParseStatus == types.ParseStatusDeleting
 }
 
-// checkStorageEngineConfigured verifies that the knowledge base has a storage engine configured
-// (either at the KB level or via the tenant default). Returns an error if no storage engine is found.
+// checkStorageEngineConfigured verifies that platform storage is configured via environment variables.
 func checkStorageEngineConfigured(ctx context.Context, kb *types.KnowledgeBase) error {
-	provider := kb.GetStorageProvider()
-	if provider == "" {
-		tenant, _ := ctx.Value(types.TenantInfoContextKey).(*types.Tenant)
-		if tenant != nil && tenant.StorageEngineConfig != nil {
-			provider = strings.ToLower(strings.TrimSpace(tenant.StorageEngineConfig.DefaultProvider))
-		}
-	}
-	if provider == "" {
-		return werrors.NewBadRequestError("请先为知识库选择存储引擎，再上传内容。请前往知识库设置页面进行配置。")
+	_ = ctx
+	_ = kb
+	if !filesvc.IsEnvStorageConfigured() {
+		return werrors.NewBadRequestError("存储引擎未在平台环境变量中配置，请联系管理员。")
 	}
 	return nil
 }

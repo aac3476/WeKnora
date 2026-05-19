@@ -392,39 +392,6 @@
                       </div>
                     </div>
 
-                    <!-- 图片存储 Provider（图片上传启用时） -->
-                    <div v-if="formData.config.image_upload_enabled" class="setting-row">
-                      <div class="setting-info">
-                        <label>{{ $t('agentEditor.imageUpload.storageProvider') }}</label>
-                        <p class="desc">{{ $t('agentEditor.imageUpload.storageProviderDesc') }}</p>
-                      </div>
-                      <div class="setting-control" style="flex-direction: column; align-items: flex-end;">
-                        <t-select
-                          v-model="formData.config.image_storage_provider"
-                          style="width: 280px;"
-                          :placeholder="$t('agentEditor.imageUpload.storageProviderPlaceholder')"
-                          clearable
-                        >
-                          <t-option value="" :label="$t('agentEditor.imageUpload.storageDefault')" />
-                          <t-option
-                            v-for="opt in imageStorageOptions"
-                            :key="opt.value"
-                            :value="opt.value"
-                            :label="opt.label"
-                            :disabled="opt.disabled"
-                          >
-                            <span class="select-option-with-tag">
-                              <span>{{ opt.label }}</span>
-                              <t-tag v-if="opt.disabled" theme="warning" variant="light" size="small">{{ $t('agentEditor.imageUpload.notConfigured') }}</t-tag>
-                            </span>
-                          </t-option>
-                        </t-select>
-                        <a href="javascript:void(0)" class="go-settings-link" @click.prevent="uiStore.openSettings('storage')">
-                          {{ $t('agentEditor.imageUpload.goStorageSettings') }}
-                        </a>
-                      </div>
-                    </div>
-
                     <!-- 音频上传开关 -->
                     <div class="setting-row">
                       <div class="setting-info">

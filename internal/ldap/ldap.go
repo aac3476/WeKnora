@@ -9,6 +9,7 @@
 //  1. Service-account bind (BindDN + BindPassword) to search for the user DN.
 //  2. Re-bind with user DN + supplied password to verify credentials.
 //  3. Return extracted email and display name attributes.
+// Login identifier may be username or email, depending on user_filter.
 package ldap
 
 import (
@@ -29,20 +30,21 @@ type UserAttrs struct {
 	Username string // display name / CN
 }
 
-// Authenticate binds to the LDAP directory and verifies email + password.
+// Authenticate binds to the LDAP directory and verifies login + password.
+// login may be a username or email, depending on user_filter configuration.
 // Returns UserAttrs on success, or an error describing the failure.
 //
 // The function is safe to call concurrently; each call opens and closes its
 // own connection.
-func Authenticate(ctx context.Context, cfg *config.LDAPAuthConfig, email, password string) (*UserAttrs, error) {
+func Authenticate(ctx context.Context, cfg *config.LDAPAuthConfig, login, password string) (*UserAttrs, error) {
 	if cfg == nil || !cfg.Enable {
 		return nil, fmt.Errorf("ldap: authentication is not enabled")
 	}
 
-	email = strings.TrimSpace(email)
+	login = strings.TrimSpace(login)
 	password = strings.TrimSpace(password)
-	if email == "" || password == "" {
-		return nil, fmt.Errorf("ldap: email and password are required")
+	if login == "" || password == "" {
+		return nil, fmt.Errorf("ldap: username/email and password are required")
 	}
 
 	conn, err := dial(cfg)
@@ -61,7 +63,7 @@ func Authenticate(ctx context.Context, cfg *config.LDAPAuthConfig, email, passwo
 	}
 
 	// Step 2 — search for the user entry.
-	filter := buildFilter(cfg, email)
+	filter := buildFilter(cfg, login)
 	emailAttr := attrOrDefault(cfg.EmailAttr, "mail")
 	nameAttr := attrOrDefault(cfg.UsernameAttr, "displayName")
 
@@ -83,7 +85,7 @@ func Authenticate(ctx context.Context, cfg *config.LDAPAuthConfig, email, passwo
 		return nil, fmt.Errorf("ldap: user search failed: %w", err)
 	}
 	if len(result.Entries) == 0 {
-		logger.Warnf(ctx, "[LDAP] user not found email=%s", email)
+		logger.Warnf(ctx, "[LDAP] user not found login=%s", login)
 		return nil, fmt.Errorf("ldap: user not found")
 	}
 
@@ -101,13 +103,12 @@ func Authenticate(ctx context.Context, cfg *config.LDAPAuthConfig, email, passwo
 		Username: getAttr(entry, nameAttr),
 	}
 	// Fallback: if the directory doesn't return an email attribute, use the
-	// login email the caller supplied.
+	// login identifier the caller supplied (may be username or email).
 	if attrs.Email == "" {
-		attrs.Email = email
+		attrs.Email = login
 	}
 	if attrs.Username == "" {
-		// Derive display name from the email local part.
-		attrs.Username = strings.SplitN(email, "@", 2)[0]
+		attrs.Username = strings.SplitN(login, "@", 2)[0]
 	}
 
 	logger.Infof(ctx, "[LDAP] authenticated email=%s dn=%s", attrs.Email, userDN)
@@ -130,14 +131,15 @@ func dial(cfg *config.LDAPAuthConfig) (*goldap.Conn, error) {
 	return conn, nil
 }
 
-func buildFilter(cfg *config.LDAPAuthConfig, email string) string {
+func buildFilter(cfg *config.LDAPAuthConfig, login string) string {
 	tmpl := cfg.UserFilter
 	if tmpl == "" {
-		tmpl = "(mail={email})"
+		tmpl = "(mail={login})"
 	}
-	// Escape the email value to prevent LDAP injection.
-	safe := goldap.EscapeFilter(email)
-	return strings.ReplaceAll(tmpl, "{email}", safe)
+	// Escape the login value to prevent LDAP injection.
+	safe := goldap.EscapeFilter(login)
+	filter := strings.ReplaceAll(tmpl, "{login}", safe)
+	return strings.ReplaceAll(filter, "{email}", safe)
 }
 
 func getAttr(entry *goldap.Entry, name string) string {

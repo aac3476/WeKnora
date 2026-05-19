@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 	"time"
 
 	filesvc "github.com/Tencent/WeKnora/internal/application/service/file"
@@ -343,30 +342,11 @@ func (s *ImageMultimodalService) resolveVLM(ctx context.Context, kbID string) (v
 // and is required because images can be saved using global STORAGE_TYPE/MINIO_*
 // env vars while tenant.StorageEngineConfig.MinIO is left empty (issue #1282).
 func (s *ImageMultimodalService) resolveFileServiceForPayload(ctx context.Context, payload types.ImageMultimodalPayload) interfaces.FileService {
-	tenant, err := s.tenantRepo.GetTenantByID(ctx, payload.TenantID)
-	if err != nil || tenant == nil {
-		logger.Warnf(ctx, "[ImageMultimodal] GetTenantByID failed: tenant=%d err=%v", payload.TenantID, err)
-		return s.fileSvc
+	_ = payload
+	if svc, _, err := filesvc.NewFileServiceFromEnv(); err == nil {
+		return svc
 	}
-
-	provider := types.ParseProviderScheme(payload.ImageURL)
-	if provider == "" {
-		kb, kbErr := s.kbService.GetKnowledgeBaseByIDOnly(ctx, payload.KnowledgeBaseID)
-		if kbErr != nil {
-			logger.Warnf(ctx, "[ImageMultimodal] GetKnowledgeBaseByIDOnly failed: kb=%s err=%v", payload.KnowledgeBaseID, kbErr)
-		} else if kb != nil {
-			provider = strings.ToLower(strings.TrimSpace(kb.GetStorageProvider()))
-		}
-	}
-
-	baseDir := strings.TrimSpace(os.Getenv("LOCAL_STORAGE_BASE_DIR"))
-	fileSvc, _, svcErr := filesvc.NewFileServiceFromStorageConfig(provider, tenant.StorageEngineConfig, baseDir)
-	if svcErr != nil {
-		logger.Warnf(ctx, "[ImageMultimodal] resolve file service failed (falling back to default): tenant=%d provider=%s err=%v",
-			payload.TenantID, provider, svcErr)
-		return s.fileSvc
-	}
-	return fileSvc
+	return s.fileSvc
 }
 
 // readImageBytes loads the image bytes for a multimodal payload.

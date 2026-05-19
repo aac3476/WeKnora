@@ -96,18 +96,18 @@ func runLogin(ctx context.Context, opts *LoginOptions, f *cmdutil.Factory, svc L
 		return persistAPIKey(opts, f)
 	}
 
-	// Interactive: prompt for email + password.
+	// Interactive: prompt for username/email + password.
 	if svc == nil {
 		return cmdutil.NewError(cmdutil.CodeServerError, "login: no SDK client (host missing?)")
 	}
 	if opts.Email == "" || opts.Password == "" {
 		p := f.Prompter()
 		if opts.Email == "" {
-			email, err := p.Input("Email", "")
+			account, err := p.Input("Username or email", "")
 			if err != nil {
-				return cmdutil.Wrapf(cmdutil.CodeInputMissingFlag, err, "email prompt")
+				return cmdutil.Wrapf(cmdutil.CodeInputMissingFlag, err, "login account prompt")
 			}
-			opts.Email = email
+			opts.Email = account
 		}
 		if opts.Password == "" {
 			pw, err := p.Password("Password")
@@ -118,7 +118,14 @@ func runLogin(ctx context.Context, opts *LoginOptions, f *cmdutil.Factory, svc L
 		}
 	}
 
-	resp, err := svc.Login(ctx, sdk.LoginRequest{Email: opts.Email, Password: opts.Password})
+	loginReq := sdk.LoginRequest{Password: opts.Password, Login: opts.Email}
+	if strings.Contains(opts.Email, "@") {
+		loginReq.Email = opts.Email
+	} else {
+		loginReq.Username = opts.Email
+	}
+
+	resp, err := svc.Login(ctx, loginReq)
 	if err != nil {
 		return cmdutil.Wrapf(cmdutil.CodeAuthBadCredential, err, "login")
 	}

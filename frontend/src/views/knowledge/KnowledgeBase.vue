@@ -130,11 +130,7 @@ onUnmounted(() => {
   stopWikiStatusPolling()
   clearWikiStatusProbes()
 })
-const missingStorageEngine = computed(() => {
-  if (!kbInfo.value || isFAQ.value) return false
-  const spc = kbInfo.value.storage_provider_config
-  return !spc || !spc.provider
-})
+const missingStorageEngine = computed(() => false)
 const parserEngines = ref<ParserEngineInfo[]>([]);
 
 const supportedFileTypes = computed<Set<string>>(() => {

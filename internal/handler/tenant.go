@@ -3,12 +3,12 @@ package handler
 import (
 	"net/http"
 	"strconv"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/Tencent/WeKnora/internal/agent"
 	agenttools "github.com/Tencent/WeKnora/internal/agent/tools"
+	filesvc "github.com/Tencent/WeKnora/internal/application/service/file"
 	"github.com/Tencent/WeKnora/internal/config"
 	"github.com/Tencent/WeKnora/internal/errors"
 	"github.com/Tencent/WeKnora/internal/logger"
@@ -865,69 +865,17 @@ func (h *TenantHandler) updateTenantParserEngineConfigInternal(c *gin.Context) {
 	})
 }
 
-// GetTenantStorageEngineConfig returns the tenant's storage engine config (Local, MinIO, COS parameters).
+// GetTenantStorageEngineConfig returns the platform storage engine config from environment variables.
 func (h *TenantHandler) GetTenantStorageEngineConfig(c *gin.Context) {
-	ctx := c.Request.Context()
-	tenant, _ := types.TenantInfoFromContext(ctx)
-	if tenant == nil {
-		logger.Error(ctx, "Tenant is empty")
-		c.Error(errors.NewBadRequestError("Tenant is empty"))
-		return
-	}
-	data := tenant.StorageEngineConfig
-	if data == nil {
-		data = &types.StorageEngineConfig{}
-	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"data":    data,
+		"data":    filesvc.StorageEngineConfigFromEnv(),
 	})
 }
 
-// updateTenantStorageEngineConfigInternal updates the tenant's storage engine config.
+// updateTenantStorageEngineConfigInternal rejects tenant-level storage overrides.
 func (h *TenantHandler) updateTenantStorageEngineConfigInternal(c *gin.Context) {
-	ctx := c.Request.Context()
-	var cfg types.StorageEngineConfig
-	if err := c.ShouldBindJSON(&cfg); err != nil {
-		logger.Error(ctx, "Failed to parse request parameters", err)
-		c.Error(errors.NewValidationError("Invalid request data").WithDetails(err.Error()))
-		return
-	}
-	provider := strings.ToLower(strings.TrimSpace(cfg.DefaultProvider))
-	if provider == "" {
-		provider = firstAllowedStorageProvider()
-	}
-	if provider == "" {
-		c.Error(errors.NewBadRequestError("No storage provider is allowed by STORAGE_ALLOW_LIST"))
-		return
-	}
-	if !isStorageProviderAllowed(provider) {
-		c.Error(errors.NewBadRequestError("Storage provider is not allowed by STORAGE_ALLOW_LIST"))
-		return
-	}
-	cfg.DefaultProvider = provider
-	tenant, _ := types.TenantInfoFromContext(ctx)
-	if tenant == nil {
-		logger.Error(ctx, "Tenant is empty")
-		c.Error(errors.NewBadRequestError("Tenant is empty"))
-		return
-	}
-	tenant.StorageEngineConfig = &cfg
-	updatedTenant, err := h.service.UpdateTenant(ctx, tenant)
-	if err != nil {
-		if appErr, ok := errors.IsAppError(err); ok {
-			c.Error(appErr)
-		} else {
-			logger.ErrorWithFields(ctx, err, nil)
-			c.Error(errors.NewInternalServerError("Failed to update tenant storage engine config").WithDetails(err.Error()))
-		}
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data":    updatedTenant.StorageEngineConfig,
-		"message": "存储引擎配置已更新",
-	})
+	c.Error(errors.NewForbiddenError("Storage engine is managed by platform environment variables and cannot be changed in the UI"))
 }
 
 func (h *TenantHandler) buildDefaultConversationConfig() *types.ConversationConfig {

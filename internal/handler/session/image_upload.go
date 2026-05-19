@@ -8,7 +8,6 @@ import (
 
 	filesvc "github.com/Tencent/WeKnora/internal/application/service/file"
 	"github.com/Tencent/WeKnora/internal/logger"
-	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	"github.com/google/uuid"
 )
@@ -141,20 +140,10 @@ func mimeToExt(mime string) string {
 }
 
 func (h *Handler) resolveImageFileService(ctx context.Context, storageProvider string) interfaces.FileService {
-	if strings.TrimSpace(storageProvider) == "" {
-		return h.fileService
+	_ = ctx
+	_ = storageProvider
+	if svc, _, err := filesvc.NewFileServiceFromEnv(); err == nil {
+		return svc
 	}
-
-	tenant, _ := ctx.Value(types.TenantInfoContextKey).(*types.Tenant)
-	if tenant == nil || tenant.StorageEngineConfig == nil {
-		return h.fileService
-	}
-
-	svc, resolvedProvider, err := filesvc.NewFileServiceFromStorageConfig(storageProvider, tenant.StorageEngineConfig, "")
-	if err != nil {
-		logger.Warnf(ctx, "[image-storage] failed to create %s file service: %v, fallback to default", storageProvider, err)
-		return h.fileService
-	}
-	logger.Infof(ctx, "[image-storage] using provider=%s for image uploads", resolvedProvider)
-	return svc
+	return h.fileService
 }

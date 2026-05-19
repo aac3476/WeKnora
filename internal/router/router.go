@@ -125,7 +125,7 @@ func NewRouter(params RouterParams) *gin.Engine {
 	serveFiles(r, params.FileService)
 
 	// Presigned file access: no auth required, signature-verified.
-	servePresignedFiles(r, params.TenantService)
+	servePresignedFiles(r, params.TenantService, params.FileService)
 
 	// 添加OpenTelemetry追踪中间件
 	// r.Use(middleware.TracingMiddleware())
@@ -801,39 +801,24 @@ func serveFiles(r getRouteRegistrar, globalFileService interfaces.FileService) {
 			return
 		}
 
-		provider := types.ParseProviderScheme(filePath)
-
 		tenant, _ := c.Request.Context().Value(types.TenantInfoContextKey).(*types.Tenant)
 		if tenant == nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized: tenant context missing"})
 			return
 		}
 
-		var (
-			fileSvc          interfaces.FileService
-			resolvedProvider string
-			err              error
-		)
-
-		if tenant.StorageEngineConfig != nil {
-			fileSvc, resolvedProvider, err = filesvc.NewFileServiceFromStorageConfig(provider, tenant.StorageEngineConfig, absDir)
+		var fileSvc interfaces.FileService
+		var resolvedProvider string
+		if globalFileService != nil {
+			fileSvc = globalFileService
+			resolvedProvider = filesvc.DefaultProviderFromEnv()
+		} else if svc, envProvider, envErr := filesvc.NewFileServiceFromEnv(); envErr == nil {
+			fileSvc = svc
+			resolvedProvider = envProvider
 		} else {
-			err = http.ErrMissingFile
-		}
-		if err != nil {
-			globalStorageType := strings.ToLower(strings.TrimSpace(os.Getenv("STORAGE_TYPE")))
-			if globalStorageType == "" {
-				globalStorageType = "local"
-			}
-			if provider == globalStorageType && globalFileService != nil {
-				logger.Warnf(context.Background(), "[Router] /files tenant storage config missing or invalid, fallback to global file service: tenant_id=%d provider=%s err=%v", tenant.ID, provider, err)
-				fileSvc = globalFileService
-				resolvedProvider = globalStorageType
-			} else {
-				logger.Warnf(context.Background(), "[Router] /files resolve file service failed without fallback: tenant_id=%d provider=%s global_storage_type=%s err=%v", tenant.ID, provider, globalStorageType, err)
-				c.Status(http.StatusBadRequest)
-				return
-			}
+			logger.Warnf(context.Background(), "[Router] /files resolve file service failed: tenant_id=%d err=%v", tenant.ID, envErr)
+			c.Status(http.StatusBadRequest)
+			return
 		}
 
 		reader, err := fileSvc.GetFile(c.Request.Context(), filePath)
@@ -879,12 +864,12 @@ func serveFiles(r getRouteRegistrar, globalFileService interfaces.FileService) {
 //
 // Route:
 //   - /api/v1/files/presigned?file_path=<provider://...>&tenant_id=<id>&expires=<unix>&sig=<hmac>
-func servePresignedFiles(r *gin.Engine, tenantService interfaces.TenantService) {
+func servePresignedFiles(r *gin.Engine, tenantService interfaces.TenantService, globalFileService interfaces.FileService) {
 	baseDir := os.Getenv("LOCAL_STORAGE_BASE_DIR")
 	if baseDir == "" {
 		baseDir = "/data/files"
 	}
-	absDir, _ := filepath.Abs(baseDir)
+	_, _ = filepath.Abs(baseDir)
 
 	r.GET("/api/v1/files/presigned", func(c *gin.Context) {
 		filePath := strings.TrimSpace(c.Query("file_path"))
@@ -913,20 +898,27 @@ func servePresignedFiles(r *gin.Engine, tenantService interfaces.TenantService) 
 			return
 		}
 
-		// Resolve the file service for this tenant.
+		// Resolve the file service from platform environment variables.
 		provider := types.ParseProviderScheme(filePath)
-		tenant, err := tenantService.GetTenantByID(c.Request.Context(), tenantID)
-		if err != nil {
+		if _, err = tenantService.GetTenantByID(c.Request.Context(), tenantID); err != nil {
 			logger.Warnf(context.Background(), "[Router] /files/presigned tenant lookup failed: tenant_id=%d err=%v", tenantID, err)
 			c.Status(http.StatusNotFound)
 			return
 		}
 
-		fileSvc, resolvedProvider, err := filesvc.NewFileServiceFromStorageConfig(provider, tenant.StorageEngineConfig, absDir)
-		if err != nil {
-			logger.Warnf(context.Background(), "[Router] /files/presigned resolve file service failed: tenant_id=%d provider=%s err=%v", tenantID, provider, err)
-			c.Status(http.StatusBadRequest)
-			return
+		var fileSvc interfaces.FileService
+		var resolvedProvider string
+		if globalFileService != nil {
+			fileSvc = globalFileService
+			resolvedProvider = filesvc.DefaultProviderFromEnv()
+		} else {
+			var envErr error
+			fileSvc, resolvedProvider, envErr = filesvc.NewFileServiceFromEnv()
+			if envErr != nil {
+				logger.Warnf(context.Background(), "[Router] /files/presigned resolve file service failed: tenant_id=%d provider=%s err=%v", tenantID, provider, envErr)
+				c.Status(http.StatusBadRequest)
+				return
+			}
 		}
 
 		reader, err := fileSvc.GetFile(c.Request.Context(), filePath)

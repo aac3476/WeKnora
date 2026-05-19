@@ -130,12 +130,23 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		c.Error(appErr)
 		return
 	}
-	email := secutils.SanitizeForLog(req.Email)
+	loginID := secutils.SanitizeForLog(req.LoginIdentifier())
 
-	// Validate required fields
-	if req.Email == "" || req.Password == "" {
+	// Validate required fields (manual — avoid gin email/required tags on LoginRequest)
+	if req.LoginIdentifier() == "" {
 		logger.Error(ctx, "Missing required login fields")
-		appErr := errors.NewValidationError("Email and password are required")
+		appErr := errors.NewValidationError("Username/email and password are required")
+		c.Error(appErr)
+		return
+	}
+	if strings.TrimSpace(req.Password) == "" {
+		logger.Error(ctx, "Missing required login fields")
+		appErr := errors.NewValidationError("Username/email and password are required")
+		c.Error(appErr)
+		return
+	}
+	if len(strings.TrimSpace(req.Password)) < 6 {
+		appErr := errors.NewValidationError("Password must be at least 6 characters")
 		c.Error(appErr)
 		return
 	}
@@ -146,14 +157,14 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	// yet exist; on failure we reject without falling back to local passwords
 	// (prevents credential confusion for corporate accounts).
 	if h.configInfo != nil && h.configInfo.LdapAuth != nil && h.configInfo.LdapAuth.Enable {
-		response, err := h.loginWithLDAP(c, req.Email, req.Password)
+		response, err := h.loginWithLDAP(c, req.LoginIdentifier(), req.Password)
 		if err != nil {
-			logger.Warnf(ctx, "LDAP login failed email=%s: %v", email, err)
+			logger.Warnf(ctx, "LDAP login failed login=%s: %v", loginID, err)
 			appErr := errors.NewUnauthorizedError("Login failed").WithDetails(err.Error())
 			c.Error(appErr)
 			return
 		}
-		logger.Infof(ctx, "User logged in via LDAP, email: %s", email)
+		logger.Infof(ctx, "User logged in via LDAP, login: %s", loginID)
 		c.JSON(http.StatusOK, response)
 		return
 	}
@@ -175,7 +186,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	logger.Infof(ctx, "User logged in successfully, email: %s", email)
+	logger.Infof(ctx, "User logged in successfully, login: %s", loginID)
 	c.JSON(http.StatusOK, response)
 }
 
@@ -337,20 +348,23 @@ func urlQueryEscape(value string) string {
 // loginWithLDAP authenticates a user against the corporate LDAP/AD directory.
 // On first successful login the user is auto-provisioned in WeKnora.
 // Returns a LoginResponse ready to be serialised, or an error.
-func (h *AuthHandler) loginWithLDAP(c *gin.Context, email, password string) (*types.LoginResponse, error) {
+func (h *AuthHandler) loginWithLDAP(c *gin.Context, login, password string) (*types.LoginResponse, error) {
 	ctx := c.Request.Context()
 	ldapCfg := h.configInfo.LdapAuth
 
 	// Authenticate against the LDAP server.
-	attrs, err := ldapauth.Authenticate(ctx, ldapCfg, email, password)
+	attrs, err := ldapauth.Authenticate(ctx, ldapCfg, login, password)
 	if err != nil {
 		return nil, err
 	}
 
 	// Look up (or provision) the local WeKnora user.
-	user, err := h.userService.GetUserByEmail(ctx, attrs.Email)
-	if err != nil || user == nil {
-		logger.Infof(ctx, "[LDAP] provisioning new user email=%s", attrs.Email)
+	user, _ := h.userService.GetUserByEmail(ctx, attrs.Email)
+	if user == nil {
+		user, _ = h.userService.GetUserByUsername(ctx, attrs.Username)
+	}
+	if user == nil {
+		logger.Infof(ctx, "[LDAP] provisioning new user email=%s username=%s", attrs.Email, attrs.Username)
 		provisional, pwdErr := generateRandomPasswordHex()
 		if pwdErr != nil {
 			return nil, fmt.Errorf("failed to generate provisional password: %w", pwdErr)

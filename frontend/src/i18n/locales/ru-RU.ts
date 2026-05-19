@@ -1208,6 +1208,9 @@ export default {
     oidcStateMismatch: 'Не удалось проверить состояние OIDC, попробуйте снова',
     username: 'Имя пользователя',
     email: 'Почта Email',
+    loginAccount: 'Имя пользователя или email',
+    loginAccountPlaceholder: 'Введите имя пользователя или email',
+    loginAccountRequired: 'Введите имя пользователя или email',
     password: 'Пароль',
     confirmPassword: 'Подтвердите пароль',
     rememberMe: 'Запомнить меня',
@@ -1243,7 +1246,7 @@ export default {
     usernameInvalid: 'Имя пользователя может содержать только буквы, цифры, подчёркивания и китайские иероглифы',
     confirmPasswordRequired: 'Подтвердите пароль',
     passwordMismatch: 'Введённые пароли не совпадают',
-    loginError: 'Ошибка входа, пожалуйста, проверьте электронную почту или пароль',
+    loginError: 'Ошибка входа, проверьте имя пользователя/email или пароль',
     loginErrorRetry: 'Ошибка входа, пожалуйста, повторите попытку позже',
     registerError: 'Ошибка регистрации, пожалуйста, повторите попытку позже',
     forgotPasswordNotAvailable: 'Функция восстановления пароля временно недоступна, пожалуйста, свяжитесь с администратором'

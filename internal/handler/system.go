@@ -475,13 +475,13 @@ type GetStorageEngineStatusResponse struct {
 // @Success      200  {object}  GetStorageEngineStatusResponse
 // @Router       /system/storage-engine-status [get]
 func (h *SystemHandler) GetStorageEngineStatus(c *gin.Context) {
-	minioConfigured := h.isMinioConfigured(c)
-	minioEnvAvailable := h.isMinioEnvAvailable()
-	cosConfigured := h.isCOSConfigured(c)
-	tosConfigured := h.isTOSConfigured(c)
-	s3Configured := h.isS3Configured(c)
-	ossConfigured := h.isOSSConfigured(c)
-	ks3Configured := h.isKS3Configured(c)
+	minioConfigured := file.IsProviderConfiguredFromEnv("minio")
+	minioEnvAvailable := minioConfigured
+	cosConfigured := file.IsProviderConfiguredFromEnv("cos")
+	tosConfigured := file.IsProviderConfiguredFromEnv("tos")
+	s3Configured := file.IsProviderConfiguredFromEnv("s3")
+	ossConfigured := file.IsProviderConfiguredFromEnv("oss")
+	ks3Configured := file.IsProviderConfiguredFromEnv("ks3")
 	allowed := getAllowedStorageProviders()
 	allowedProviders := make([]string, 0, len(supportedStorageProviders))
 	for _, provider := range getSupportedStorageProviders() {

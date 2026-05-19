@@ -1,6 +1,7 @@
 package types
 
 import (
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -58,10 +59,24 @@ type AuthToken struct {
 	User *User `json:"user,omitempty" gorm:"foreignKey:UserID"`
 }
 
-// LoginRequest represents a login request
+// LoginRequest represents a login request.
+// Provide login, username, or email (checked in that order).
 type LoginRequest struct {
-	Email    string `json:"email"    binding:"required,email"`
-	Password string `json:"password" binding:"required,min=6"`
+	Login    string `json:"login"`
+	Email    string `json:"email"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+// LoginIdentifier returns the credential identifier used for authentication.
+func (r *LoginRequest) LoginIdentifier() string {
+	if u := strings.TrimSpace(r.Login); u != "" {
+		return u
+	}
+	if u := strings.TrimSpace(r.Username); u != "" {
+		return u
+	}
+	return strings.TrimSpace(r.Email)
 }
 
 type OIDCAuthURLResponse struct {

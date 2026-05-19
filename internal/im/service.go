@@ -8,7 +8,6 @@ import (
 	"io"
 	"mime/multipart"
 	"net/textproto"
-	"os"
 	"regexp"
 	"strings"
 	"sync"
@@ -158,18 +157,12 @@ func cleanIMContent(ctx context.Context, content string, fileSvc interfaces.File
 // buildTenantFileService creates a FileService for the given tenant's storage config.
 // Returns nil if the tenant has no storage config or if creation fails.
 func buildTenantFileService(tenant *types.Tenant) interfaces.FileService {
-	if tenant == nil {
-		return nil
-	}
-	baseDir := os.Getenv("LOCAL_STORAGE_BASE_DIR")
-	if baseDir == "" {
-		baseDir = "/data/files"
-	}
-	fileSvc, _, err := filesvc.NewFileServiceFromStorageConfig("", tenant.StorageEngineConfig, baseDir)
+	_ = tenant
+	svc, _, err := filesvc.NewFileServiceFromEnv()
 	if err != nil {
 		return nil
 	}
-	return fileSvc
+	return svc
 }
 
 const (

@@ -389,33 +389,10 @@ func (s *DataTableSummaryService) prepareResources(ctx context.Context, payload 
 // resolveFileServiceForKnowledge resolves a provider-specific file service for the current knowledge file.
 // It falls back to the global service when tenant storage config is unavailable.
 func (s *DataTableSummaryService) resolveFileServiceForKnowledge(ctx context.Context, resources *extractionResources) interfaces.FileService {
-	if resources == nil || resources.knowledge == nil {
-		return s.fileService
+	if svc, _, err := filesvc.NewFileServiceFromEnv(); err == nil {
+		return svc
 	}
-	if resources.tenant == nil || resources.tenant.StorageEngineConfig == nil {
-		return s.fileService
-	}
-
-	provider := types.InferStorageFromFilePath(resources.knowledge.FilePath)
-	if provider == "" {
-		provider = strings.ToLower(strings.TrimSpace(resources.tenant.StorageEngineConfig.DefaultProvider))
-	}
-	if provider == "" {
-		return s.fileService
-	}
-
-	baseDir := strings.TrimSpace(os.Getenv("LOCAL_STORAGE_BASE_DIR"))
-	resolvedSvc, resolvedProvider, err := filesvc.NewFileServiceFromStorageConfig(
-		provider,
-		resources.tenant.StorageEngineConfig,
-		baseDir,
-	)
-	if err != nil {
-		logger.Warnf(ctx, "[TableSummary] Failed to resolve file service for provider=%s, fallback to default: %v", provider, err)
-		return s.fileService
-	}
-	logger.Infof(ctx, "[TableSummary] Resolved file service for knowledge=%s provider=%s", resources.knowledge.ID, resolvedProvider)
-	return resolvedSvc
+	return s.fileService
 }
 
 // processTableData 处理表格数据：加载 -> 分析 -> 生成摘要 -> 创建chunks

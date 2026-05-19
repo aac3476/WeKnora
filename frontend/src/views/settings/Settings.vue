@@ -27,35 +27,8 @@
                     @click="handleNavClick(item)"
                   >
                     <!-- 网络搜索使用自定义 SVG 图标 -->
-                    <svg
-                      v-if="item.key === 'websearch'"
-                      width="18"
-                      height="18"
-                      viewBox="0 0 18 18"
-                      fill="none"
-                      xmlns="http://www.w3.org/2000/svg"
-                      class="nav-icon"
-                    >
-                      <circle cx="9" cy="9" r="7" stroke="currentColor" stroke-width="1.2" fill="none"/>
-                      <path d="M 9 2 A 3.5 7 0 0 0 9 16" stroke="currentColor" stroke-width="1.2" fill="none"/>
-                      <path d="M 9 2 A 3.5 7 0 0 1 9 16" stroke="currentColor" stroke-width="1.2" fill="none"/>
-                      <line x1="2.94" y1="5.5" x2="15.06" y2="5.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
-                      <line x1="2.94" y1="12.5" x2="15.06" y2="12.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
-                    </svg>
-                    <!-- WeKnora Cloud 使用自定义 W 图标 -->
-                    <svg
-                      v-else-if="item.key === 'weknoracloud'"
-                      width="18"
-                      height="18"
-                      viewBox="0 0 18 18"
-                      fill="none"
-                      xmlns="http://www.w3.org/2000/svg"
-                      class="nav-icon"
-                    >
-                      <rect x="1.5" y="1.5" width="15" height="15" rx="3.5" stroke="currentColor" stroke-width="1.2" fill="none"/>
-                      <path d="M4.5 5.5L6.5 12.5L9 7.5L11.5 12.5L13.5 5.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-                    </svg>
-                    <t-icon v-else :name="item.icon" class="nav-icon" />
+                   
+                    <t-icon :name="item.icon" class="nav-icon" />
                     <span class="nav-label">{{ item.label }}</span>
                     <t-icon 
                       v-if="item.children && item.children.length > 0"
@@ -92,16 +65,6 @@
                   <GeneralSettings />
                 </div>
 
-                <!-- Ollama 设置 -->
-                <div v-if="currentSection === 'ollama'" class="section">
-                  <OllamaSettings />
-                </div>
-
-                <!-- WeKnora Cloud -->
-                <div v-if="currentSection === 'weknoracloud'" class="section">
-                  <WeKnoraCloudSettings />
-                </div>
-
                 <!-- 模型配置 -->
                 <div v-if="currentSection === 'models'" class="section">
                   <ModelSettings />
@@ -125,11 +88,6 @@
                 <!-- 解析引擎 -->
                 <div v-if="currentSection === 'parser'" class="section">
                   <ParserEngineSettings />
-                </div>
-
-                <!-- 存储引擎 -->
-                <div v-if="currentSection === 'storage'" class="section">
-                  <StorageEngineSettings />
                 </div>
 
                 <!-- 系统信息 -->
@@ -170,15 +128,11 @@ import TenantInfo from './TenantInfo.vue'
 import ApiInfo from './ApiInfo.vue'
 import GeneralSettings from './GeneralSettings.vue'
 import ModelSettings from './ModelSettings.vue'
-import OllamaSettings from './OllamaSettings.vue'
 import McpSettings from './McpSettings.vue'
 import WebSearchSettings from './WebSearchSettings.vue'
 import ChatHistorySettings from './ChatHistorySettings.vue'
 import VectorStoreSettings from './VectorStoreSettings.vue'
 import ParserEngineSettings from './ParserEngineSettings.vue'
-import StorageEngineSettings from './StorageEngineSettings.vue'
-import WeKnoraCloudSettings from './WeKnoraCloudSettings.vue'
-
 const route = useRoute()
 const router = useRouter()
 const uiStore = useUIStore()
@@ -188,16 +142,17 @@ const currentSection = ref<string>('general')
 const currentSubSection = ref<string>('')
 const expandedMenus = ref<string[]>([])
 
+const hiddenSections = new Set(['storage', 'ollama', 'weknoracloud'])
+
+const normalizeSection = (section: string) => (hiddenSections.has(section) ? 'general' : section)
+
 const navItems = computed(() => [
   { key: 'general', icon: 'setting', label: t('general.title') },
-  { key: 'ollama', icon: 'server', label: 'Ollama' },
-  { key: 'weknoracloud', icon: '', label: 'WeKnora Cloud' },
   { key: 'models', icon: 'control-platform', label: t('settings.modelManagement') },
    { key: 'websearch', icon: 'search', label: t('settings.webSearchConfig')  },
   { key: 'chathistory', icon: 'chat', label: t('chatHistorySettings.title') },
   { key: 'vectorstore', icon: 'data-base', label: t('settings.vectorStoreEngine') },
   { key: 'parser', icon: 'file-search', label: t('settings.parserEngine') },
-  { key: 'storage', icon: 'cloud', label: t('settings.storageEngine') },
   { key: 'mcp', icon: 'tools', label: t('settings.mcpService') },
   { key: 'system', icon: 'info-circle', label: t('settings.systemSettings') },
   { key: 'tenant', icon: 'user-circle', label: t('settings.tenantInfo') },
@@ -254,11 +209,11 @@ const handleClose = () => {
 // 监听初始导航设置
 watch(() => uiStore.settingsInitialSection, (section) => {
   if (section && visible.value) {
-    currentSection.value = section
-    const navItem = (navItems.value as any[]).find((item) => item.key === section)
+    currentSection.value = normalizeSection(section)
+    const navItem = (navItems.value as any[]).find((item) => item.key === currentSection.value)
     if (navItem && navItem.children && navItem.children.length > 0) {
-      if (!expandedMenus.value.includes(section)) {
-        expandedMenus.value.push(section)
+      if (!expandedMenus.value.includes(currentSection.value)) {
+        expandedMenus.value.push(currentSection.value)
       }
       currentSubSection.value = uiStore.settingsInitialSubSection || navItem.children[0].key
       if (uiStore.settingsInitialSubSection) {
@@ -286,12 +241,12 @@ const handleEscape = (e: KeyboardEvent) => {
 const handleSettingsNav = (e: CustomEvent) => {
   const { section, subsection } = e.detail
   if (section) {
-    currentSection.value = section
+    currentSection.value = normalizeSection(section)
     // 如果有子菜单，自动展开
-    const navItem = (navItems.value as any[]).find((item: any) => item.key === section)
+    const navItem = (navItems.value as any[]).find((item: any) => item.key === currentSection.value)
     if (navItem && navItem.children && navItem.children.length > 0) {
-      if (!expandedMenus.value.includes(section)) {
-        expandedMenus.value.push(section)
+      if (!expandedMenus.value.includes(currentSection.value)) {
+        expandedMenus.value.push(currentSection.value)
       }
       // 如果有 subsection，选中对应的子菜单项
       currentSubSection.value = subsection || navItem.children[0].key

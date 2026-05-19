@@ -22,6 +22,9 @@ node_modules/
 /build/
 *.log
 
+# Go debugger temporary binaries (VS Code / Delve)
+**/__debug_bin*
+
 # 临时文件
 tmp/
 temp/
