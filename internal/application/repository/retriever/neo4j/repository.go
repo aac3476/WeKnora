@@ -3,6 +3,7 @@ package neo4j
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/Tencent/WeKnora/internal/logger"
@@ -25,6 +26,17 @@ func NewNeo4jRepository(driver neo4j.Driver) interfaces.RetrieveGraphRepository 
 // _remove_hyphen removes hyphens from a string
 func _remove_hyphen(s string) string {
 	return strings.ReplaceAll(s, "-", "_")
+}
+
+// safeRelType limits relationship types to Cypher-safe identifiers (GDB has no APOC merge.relationship).
+var safeRelType = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+func sanitizeRelType(relType string) (string, error) {
+	relType = strings.TrimSpace(relType)
+	if relType == "" || !safeRelType.MatchString(relType) {
+		return "", fmt.Errorf("invalid relationship type: %q", relType)
+	}
+	return relType, nil
 }
 
 // Labels returns the labels for a namespace
@@ -61,49 +73,52 @@ func (n *Neo4jRepository) addGraph(ctx context.Context, namespace types.NameSpac
 	session := n.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
 	defer session.Close(ctx)
 
+	labelExpr := n.Label(namespace)
 	_, err := session.ExecuteWrite(ctx, func(tx neo4j.ManagedTransaction) (interface{}, error) {
-		// Node import query
-		node_import_query := `
+		// 标准 Cypher MERGE：兼容阿里云 GDB（不支持 APOC merge.node / merge.relationship）
+		nodeImportQuery := `
 			UNWIND $data AS row
-			CALL apoc.merge.node(row.labels, {name: row.name, kg: row.knowledge_id}, row.props, {}) YIELD node
-			SET node.chunks = apoc.coll.union(node.chunks, row.chunks)
-			RETURN distinct 'done' AS result
+			MERGE (node:` + labelExpr + ` {name: row.name, kg: $knowledge_id})
+			SET node.attributes = row.attributes,
+			    node.chunks = CASE
+			        WHEN node.chunks IS NULL THEN row.chunks
+			        ELSE [c IN node.chunks WHERE NOT c IN row.chunks] + row.chunks
+			    END
 		`
-		nodeData := []map[string]interface{}{}
+		nodeData := make([]map[string]interface{}, 0, len(graph.Node))
 		for _, node := range graph.Node {
 			nodeData = append(nodeData, map[string]interface{}{
-				"name":         node.Name,
-				"knowledge_id": namespace.Knowledge,
-				"props":        map[string][]string{"attributes": node.Attributes},
-				"chunks":       node.Chunks,
-				"labels":       n.Labels(namespace),
+				"name":       node.Name,
+				"attributes": node.Attributes,
+				"chunks":     node.Chunks,
 			})
 		}
-		if _, err := tx.Run(ctx, node_import_query, map[string]interface{}{"data": nodeData}); err != nil {
-			return nil, fmt.Errorf("failed to create nodes: %v", err)
+		if len(nodeData) > 0 {
+			if _, err := tx.Run(ctx, nodeImportQuery, map[string]interface{}{
+				"data":          nodeData,
+				"knowledge_id":  namespace.Knowledge,
+			}); err != nil {
+				return nil, fmt.Errorf("failed to create nodes: %v", err)
+			}
 		}
 
-		// Relationship import query
-		rel_import_query := `
-			UNWIND $data AS row
-			CALL apoc.merge.node(row.source_labels, {name: row.source, kg: row.knowledge_id}, {}, {}) YIELD node as source
-			CALL apoc.merge.node(row.target_labels, {name: row.target, kg: row.knowledge_id}, {}, {}) YIELD node as target
-			CALL apoc.merge.relationship(source, row.type, {}, row.attributes, target) YIELD rel
-			RETURN distinct 'done'
-		`
-		relData := []map[string]interface{}{}
 		for _, rel := range graph.Relation {
-			relData = append(relData, map[string]interface{}{
-				"source":        rel.Node1,
-				"target":        rel.Node2,
-				"knowledge_id":  namespace.Knowledge,
-				"type":          rel.Type,
-				"source_labels": n.Labels(namespace),
-				"target_labels": n.Labels(namespace),
-			})
-		}
-		if _, err := tx.Run(ctx, rel_import_query, map[string]interface{}{"data": relData}); err != nil {
-			return nil, fmt.Errorf("failed to create relationships: %v", err)
+			relType, err := sanitizeRelType(rel.Type)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create relationships: %w", err)
+			}
+			relImportQuery := fmt.Sprintf(`
+				MATCH (source:%s {name: $source, kg: $knowledge_id})
+				MATCH (target:%s {name: $target, kg: $knowledge_id})
+				MERGE (source)-[r:%s]->(target)
+			`, labelExpr, labelExpr, relType)
+			if _, err := tx.Run(ctx, relImportQuery, map[string]interface{}{
+				"source":       rel.Node1,
+				"target":       rel.Node2,
+				"knowledge_id": namespace.Knowledge,
+			}); err != nil {
+				return nil, fmt.Errorf("failed to create relationships: %v", err)
+			}
 		}
 		return nil, nil
 	})
@@ -126,29 +141,13 @@ func (n *Neo4jRepository) DelGraph(ctx context.Context, namespaces []types.NameS
 	result, err := session.ExecuteWrite(ctx, func(tx neo4j.ManagedTransaction) (interface{}, error) {
 		for _, namespace := range namespaces {
 			labelExpr := n.Label(namespace)
-
-			deleteRelsQuery := `
-				CALL apoc.periodic.iterate(
-					"MATCH (n:` + labelExpr + ` {kg: $knowledge_id})-[r]-(m:` + labelExpr + ` {kg: $knowledge_id}) RETURN r",
-					"DELETE r",
-					{batchSize: 1000, parallel: true, params: {knowledge_id: $knowledge_id}}
-				) YIELD batches, total
-				RETURN total
-        	`
-			if _, err := tx.Run(ctx, deleteRelsQuery, map[string]interface{}{"knowledge_id": namespace.Knowledge}); err != nil {
-				return nil, fmt.Errorf("failed to delete relationships: %v", err)
-			}
-
-			deleteNodesQuery := `
-				CALL apoc.periodic.iterate(
-					"MATCH (n:` + labelExpr + ` {kg: $knowledge_id}) RETURN n",
-					"DELETE n",
-					{batchSize: 1000, parallel: true, params: {knowledge_id: $knowledge_id}}
-				) YIELD batches, total
-				RETURN total
-        	`
-			if _, err := tx.Run(ctx, deleteNodesQuery, map[string]interface{}{"knowledge_id": namespace.Knowledge}); err != nil {
-				return nil, fmt.Errorf("failed to delete nodes: %v", err)
+			// 标准 Cypher：兼容阿里云 GDB（不支持 APOC / apoc.periodic.iterate）
+			deleteQuery := `
+				MATCH (n:` + labelExpr + ` {kg: $knowledge_id})
+				DETACH DELETE n
+			`
+			if _, err := tx.Run(ctx, deleteQuery, map[string]interface{}{"knowledge_id": namespace.Knowledge}); err != nil {
+				return nil, fmt.Errorf("failed to delete graph: %v", err)
 			}
 		}
 		return nil, nil
