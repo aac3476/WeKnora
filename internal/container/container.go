@@ -582,11 +582,14 @@ func syncSequences(db *gorm.DB) {
 	}
 }
 
-// resetPendingTasks resets the state of any knowledge items or sync logs stuck in processing
-// due to an unexpected application restart when using in-memory queues (Lite mode).
+// resetPendingTasks resets stuck work left over from an aborted run.
+// Sync logs are always cleared: Asynq does not update DB when a pod dies mid-sync.
+// Knowledge parse/summary resets apply only in Lite mode (no Redis / in-memory queue).
 func resetPendingTasks(db *gorm.DB) {
+	resetStuckSyncLogs(db)
+
 	if os.Getenv("REDIS_ADDR") != "" {
-		return // Distributed queue (Asynq) will handle its own retries
+		return
 	}
 
 	// 1. Reset knowledge parsing tasks
@@ -613,19 +616,23 @@ func resetPendingTasks(db *gorm.DB) {
 	} else if resultSummary.RowsAffected > 0 {
 		logger.Infof(context.Background(), "Reset %d stuck summary generation tasks to failed state", resultSummary.RowsAffected)
 	}
+}
 
-	// 3. Reset data source sync tasks
-	resultSync := db.Model(&types.SyncLog{}).
+// resetStuckSyncLogs marks running/pending sync_logs as failed after a crash or rollout.
+// Runs in both Lite and Redis (Asynq) deployments.
+func resetStuckSyncLogs(db *gorm.DB) {
+	now := time.Now().UTC()
+	result := db.Model(&types.SyncLog{}).
 		Where("status IN ?", []string{types.SyncLogStatusRunning, "pending"}).
 		Updates(map[string]interface{}{
 			"status":        types.SyncLogStatusFailed,
 			"error_message": "Sync interrupted due to application restart",
-			"end_time":      time.Now(),
+			"finished_at":   &now,
 		})
-	if resultSync.Error != nil {
-		logger.Warnf(context.Background(), "Failed to reset pending data source sync tasks: %v", resultSync.Error)
-	} else if resultSync.RowsAffected > 0 {
-		logger.Infof(context.Background(), "Reset %d stuck data source sync tasks to failed state", resultSync.RowsAffected)
+	if result.Error != nil {
+		logger.Warnf(context.Background(), "Failed to reset stuck sync logs: %v", result.Error)
+	} else if result.RowsAffected > 0 {
+		logger.Infof(context.Background(), "Reset %d stuck data source sync logs to failed state", result.RowsAffected)
 	}
 }
 

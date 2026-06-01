@@ -30,7 +30,7 @@ const (
 	ChannelIM               = "im"                // Generic IM channel
 	ChannelNotion           = "notion"            // Notion
 	ChannelYuque            = "yuque"             // Yuque (语雀)
-	ChannelXgimiLLMWiki     = "xgimi_llm_wiki"   // xgimi AI Hub LLM Wiki (AI-generated knowledge)
+	ChannelXgimiLLMWiki     = "xgimi_llm_wiki"   // XGIMI AI Hub LLM Wiki (AI-generated knowledge)
 )
 
 // Knowledge parse status constants

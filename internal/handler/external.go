@@ -1,5 +1,5 @@
 // Package handler provides HTTP handler implementations for the WeKnora API.
-// external.go exposes /api/v1/external/* routes consumed exclusively by xgimi AI Hub
+// external.go exposes /api/v1/external/* routes consumed exclusively by XGIMI AI Hub
 // (and other internal automation). Authentication follows the global auth middleware
 // (Bearer first, then X-API-Key). When a request arrives with X-API-Key +
 // X-External-User-Email, this handler resolves the email to a real User and
@@ -22,7 +22,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// ExternalHandler handles /api/v1/external/* requests from xgimi AI Hub.
+// ExternalHandler handles /api/v1/external/* requests from XGIMI AI Hub.
 type ExternalHandler struct {
 	userService      interfaces.UserService
 	tenantService    interfaces.TenantService

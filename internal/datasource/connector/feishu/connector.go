@@ -3,13 +3,13 @@ package feishu
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
 
+	"github.com/Tencent/WeKnora/internal/datasource"
 	"github.com/Tencent/WeKnora/internal/types"
 )
 
@@ -73,173 +73,27 @@ func (c *Connector) ListResources(ctx context.Context, config *types.DataSourceC
 
 // FetchAll performs a full sync of all documents from the specified wiki spaces.
 func (c *Connector) FetchAll(ctx context.Context, config *types.DataSourceConfig, resourceIDs []string) ([]types.FetchedItem, error) {
-	feishuConfig, err := parseFeishuConfig(config)
-	if err != nil {
-		return nil, err
-	}
-
-	client := NewClient(feishuConfig)
-
 	var allItems []types.FetchedItem
-
-	for _, spaceID := range resourceIDs {
-		// List all nodes in this wiki space recursively
-		nodes, err := client.ListAllWikiNodesRecursive(ctx, spaceID)
-		if err != nil {
-			var partialErr *partialWikiNodeListError
-			if !errors.As(err, &partialErr) {
-				return nil, fmt.Errorf("list nodes in space %s: %w", spaceID, err)
-			}
-			allItems = appendWikiNodeListFailureItems(allItems, spaceID, partialErr.Failures)
-		}
-
-		// Fetch content for each document node
-		for _, node := range nodes {
-			item, err := c.fetchNodeContent(ctx, client, node, spaceID)
-			if err != nil {
-				// Log error but continue with other nodes
-				allItems = append(allItems, types.FetchedItem{
-					ExternalID:       node.NodeToken,
-					Title:            node.Title,
-					SourceResourceID: spaceID,
-					Metadata: map[string]string{
-						"error": err.Error(),
-					},
-				})
-				continue
-			}
-			if item != nil {
-				allItems = append(allItems, *item)
-			}
-		}
-	}
-
-	return allItems, nil
+	err := c.FetchAllStream(ctx, config, resourceIDs, datasource.StreamCallbacks{
+		Emit: func(item types.FetchedItem) error {
+			allItems = append(allItems, item)
+			return nil
+		},
+	})
+	return allItems, err
 }
 
 // FetchIncremental performs an incremental sync by comparing node edit times
 // against the previously recorded state.
 func (c *Connector) FetchIncremental(ctx context.Context, config *types.DataSourceConfig, cursor *types.SyncCursor) ([]types.FetchedItem, *types.SyncCursor, error) {
-	feishuConfig, err := parseFeishuConfig(config)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	client := NewClient(feishuConfig)
-
-	// Parse the previous cursor state
-	var prevCursor feishuCursor
-	if cursor != nil && cursor.ConnectorCursor != nil {
-		cursorBytes, _ := json.Marshal(cursor.ConnectorCursor)
-		_ = json.Unmarshal(cursorBytes, &prevCursor)
-	}
-
-	// Build new cursor to track current state
-	newCursor := feishuCursor{
-		LastSyncTime:   time.Now(),
-		SpaceNodeTimes: make(map[string]map[string]string),
-	}
-
 	var changedItems []types.FetchedItem
-
-	// Get resource IDs from config
-	resourceIDs := config.ResourceIDs
-	if len(resourceIDs) == 0 {
-		return nil, nil, fmt.Errorf("no resource IDs (wiki space IDs) configured")
-	}
-
-	for _, spaceID := range resourceIDs {
-		// List all nodes in this space
-		nodes, err := client.ListAllWikiNodesRecursive(ctx, spaceID)
-		var partialErr *partialWikiNodeListError
-		if err != nil {
-			if !errors.As(err, &partialErr) {
-				return nil, nil, fmt.Errorf("list nodes in space %s: %w", spaceID, err)
-			}
-			changedItems = appendWikiNodeListFailureItems(changedItems, spaceID, partialErr.Failures)
-		}
-
-		newCursor.SpaceNodeTimes[spaceID] = make(map[string]string)
-		if partialErr != nil && prevCursor.SpaceNodeTimes != nil {
-			if prevTimes, ok := prevCursor.SpaceNodeTimes[spaceID]; ok {
-				for nodeToken, editTime := range prevTimes {
-					newCursor.SpaceNodeTimes[spaceID][nodeToken] = editTime
-				}
-			}
-		}
-
-		// Build a set of current node tokens for deletion detection
-		currentNodes := make(map[string]bool)
-
-		for _, node := range nodes {
-			currentNodes[node.NodeToken] = true
-			// Use ObjEditTime (document content edit time) for change detection,
-			// NOT NodeEditTime which only tracks node attribute changes (title, position).
-			editTimeStr := node.ObjEditTime
-			if editTimeStr == "" {
-				editTimeStr = node.NodeEditTime // fallback for nodes that don't have obj_edit_time
-			}
-			newCursor.SpaceNodeTimes[spaceID][node.NodeToken] = editTimeStr
-
-			// Check if node has changed since last sync
-			if prevCursor.SpaceNodeTimes != nil {
-				if prevTimes, ok := prevCursor.SpaceNodeTimes[spaceID]; ok {
-					if prevEditTime, exists := prevTimes[node.NodeToken]; exists {
-						if prevEditTime == editTimeStr {
-							// Node unchanged, skip
-							continue
-						}
-					}
-				}
-			}
-
-			// Node is new or changed — fetch its content
-			item, err := c.fetchNodeContent(ctx, client, node, spaceID)
-			if err != nil {
-				// Record failed items
-				changedItems = append(changedItems, types.FetchedItem{
-					ExternalID:       node.NodeToken,
-					Title:            node.Title,
-					SourceResourceID: spaceID,
-					Metadata: map[string]string{
-						"error": err.Error(),
-					},
-				})
-				continue
-			}
-			if item != nil {
-				changedItems = append(changedItems, *item)
-			}
-		}
-
-		// Detect deleted nodes
-		if partialErr == nil && prevCursor.SpaceNodeTimes != nil {
-			if prevTimes, ok := prevCursor.SpaceNodeTimes[spaceID]; ok {
-				for nodeToken := range prevTimes {
-					if !currentNodes[nodeToken] {
-						// Node was deleted
-						changedItems = append(changedItems, types.FetchedItem{
-							ExternalID:       nodeToken,
-							IsDeleted:        true,
-							SourceResourceID: spaceID,
-						})
-					}
-				}
-			}
-		}
-	}
-
-	// Build next sync cursor
-	nextCursorMap := make(map[string]interface{})
-	cursorBytes, _ := json.Marshal(newCursor)
-	_ = json.Unmarshal(cursorBytes, &nextCursorMap)
-
-	nextSyncCursor := &types.SyncCursor{
-		LastSyncTime:    time.Now(),
-		ConnectorCursor: nextCursorMap,
-	}
-
-	return changedItems, nextSyncCursor, nil
+	nextCursor, err := c.FetchIncrementalStream(ctx, config, cursor, datasource.StreamCallbacks{
+		Emit: func(item types.FetchedItem) error {
+			changedItems = append(changedItems, item)
+			return nil
+		},
+	})
+	return changedItems, nextCursor, err
 }
 
 func appendWikiNodeListFailureItems(items []types.FetchedItem, spaceID string, failures []wikiNodeListFailure) []types.FetchedItem {

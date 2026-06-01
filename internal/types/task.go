@@ -1,5 +1,7 @@
 package types
 
+import "time"
+
 const (
 	TypeChunkExtract         = "chunk:extract"
 	TypeDocumentProcess      = "document:process"       // 文档处理任务
@@ -18,6 +20,11 @@ const (
 	TypeDataSourceSync       = "datasource:sync"        // 数据源同步任务
 	TypeWikiIngest           = "wiki:ingest"            // Wiki 页面同步任务
 )
+
+// DataSourceSyncTaskTimeout is the asynq execution limit for datasource:sync.
+// Zero disables the limit (asynq default is 30m). Large Feishu wiki full syncs
+// routinely exceed 30m for fetch alone and may need hours for ingest.
+const DataSourceSyncTaskTimeout time.Duration = 0
 
 // ExtractChunkPayload represents the extract chunk task payload
 type ExtractChunkPayload struct {

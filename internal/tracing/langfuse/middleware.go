@@ -11,7 +11,7 @@ import (
 
 // GinMiddleware returns a Gin handler that opens a Langfuse trace for each
 // incoming request that hits a traced path (see shouldTrace), or — when
-// X-Langfuse-Trace-Id is present — resumes the upstream trace from xgimi AI Hub
+// X-Langfuse-Trace-Id is present — resumes the upstream trace from XGIMI AI Hub
 // so WeKnora generations nest under the same Langfuse tree.
 func GinMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -81,7 +81,7 @@ func GinMiddleware() gin.HandlerFunc {
 	}
 }
 
-// HTTP headers from xgimi AI Hub (or any upstream) for Langfuse trace stitching.
+// HTTP headers from XGIMI AI Hub (or any upstream) for Langfuse trace stitching.
 // See backend/app/services/langfuse_service.py (get_propagation_headers).
 const (
 	headerLangfuseTraceID               = "X-Langfuse-Trace-Id"

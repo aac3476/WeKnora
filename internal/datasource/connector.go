@@ -30,6 +30,24 @@ type Connector interface {
 	FetchIncremental(ctx context.Context, config *types.DataSourceConfig, cursor *types.SyncCursor) ([]types.FetchedItem, *types.SyncCursor, error)
 }
 
+// SyncEmitFunc is called for each item during a streaming fetch.
+// Return a non-nil error to abort the sync.
+type SyncEmitFunc func(item types.FetchedItem) error
+
+// StreamCallbacks drives streaming fetch: discover planned work, then emit items.
+type StreamCallbacks struct {
+	// OnDiscovered increases the planned item count (e.g. after listing wiki nodes).
+	OnDiscovered func(delta int)
+	Emit         SyncEmitFunc
+}
+
+// StreamingConnector supports fetch-and-ingest without buffering all items in memory.
+type StreamingConnector interface {
+	Connector
+	FetchAllStream(ctx context.Context, config *types.DataSourceConfig, resourceIDs []string, cb StreamCallbacks) error
+	FetchIncrementalStream(ctx context.Context, config *types.DataSourceConfig, cursor *types.SyncCursor, cb StreamCallbacks) (*types.SyncCursor, error)
+}
+
 // ConnectorRegistry manages the registration and lookup of available connectors
 type ConnectorRegistry struct {
 	connectors map[string]Connector

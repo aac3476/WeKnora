@@ -996,7 +996,7 @@ func RegisterWeKnoraCloudRoutes(r *gin.RouterGroup, handler *handler.WeKnoraClou
 	r.GET("/models/weknoracloud/status", handler.Status)
 }
 
-// RegisterExternalRoutes registers the /api/v1/external/* routes consumed by xgimi AI Hub.
+// RegisterExternalRoutes registers the /api/v1/external/* routes consumed by XGIMI AI Hub.
 // Authentication follows the global middleware (Bearer or X-API-Key).
 // When X-API-Key is used, send X-External-User-Email so the handler resolves the real user.
 func RegisterExternalRoutes(r *gin.RouterGroup, h *handler.ExternalHandler) {
